@@ -1,10 +1,22 @@
 .container {
-    margin-top: 20px;
     width: 100%;
     max-width: 500px;
     background: rgba(0, 0, 0, 0.3);
     padding: 20px;
     border-radius: 12px;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .instructions {
@@ -12,26 +24,30 @@
     margin-bottom: 20px;
 }
 
+.instructions h3 {
+    color: #fbbf24;
+    margin-bottom: 4px;
+}
+
 .hint {
     color: var(--secondary);
     font-style: italic;
     margin-top: 8px;
-}
-
-.result {
-    background: var(--primary-glow);
-    padding: 15px;
-    border-radius: 8px;
-    text-align: center;
-    font-weight: bold;
-    margin-bottom: 20px;
-    border: 1px solid var(--primary);
+    font-size: 0.9rem;
 }
 
 .targets {
     display: flex;
     flex-direction: column;
     gap: 15px;
+}
+
+.targets h4 {
+    color: var(--secondary);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0;
 }
 
 .playerGrid,
@@ -46,25 +62,44 @@
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     color: var(--foreground);
-    padding: 10px 15px;
-    border-radius: 6px;
+    padding: 10px 18px;
+    border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s;
+    font-size: 0.95rem;
 }
 
-.targetBtn:hover {
+.targetBtn:hover:not(:disabled) {
     border-color: var(--primary);
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.targetBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .targetBtn.selected {
     background: var(--primary);
     color: white;
     border-color: var(--primary);
-    box-shadow: 0 0 10px var(--primary-glow);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
 }
 
-.doneBtn {
+.confirmBtn {
     width: 100%;
-    margin-top: 20px;
-    background: var(--secondary);
+    margin-top: 8px;
+    font-size: 1rem;
+}
+
+.confirmBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.waiting {
+    text-align: center;
+    padding: 12px;
+    color: var(--secondary);
+    font-style: italic;
 }

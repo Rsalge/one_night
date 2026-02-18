@@ -5,6 +5,7 @@ import Login from '@/components/Login';
 import Lobby from '@/components/Lobby';
 import GameTable from '@/components/GameTable';
 import DayPhase from '@/components/DayPhase';
+import GameResults from '@/components/GameResults';
 import { getSocket } from '@/lib/socket';
 
 export default function Home() {
@@ -13,7 +14,9 @@ export default function Home() {
   const [isInLobby, setIsInLobby] = useState(false);
   const [initialPlayers, setInitialPlayers] = useState([]);
   const [gameData, setGameData] = useState(null);
-  const [phase, setPhase] = useState('LOBBY'); // LOBBY, NIGHT, DAY
+  const [phase, setPhase] = useState('LOBBY');
+  const [dayPlayers, setDayPlayers] = useState([]);
+  const [voteResults, setVoteResults] = useState(null);
 
   useEffect(() => {
     const socket = getSocket();
@@ -40,10 +43,17 @@ export default function Home() {
 
     socket.on('game_started', (data) => {
       setGameData(data);
+      setPhase('NIGHT');
     });
 
-    socket.on('phase_change', ({ phase }) => {
+    socket.on('phase_change', ({ phase, players }) => {
       setPhase(phase);
+      if (players) setDayPlayers(players);
+    });
+
+    socket.on('vote_results', (results) => {
+      setVoteResults(results);
+      setPhase('RESULTS');
     });
 
     return () => {
@@ -53,6 +63,7 @@ export default function Home() {
       socket.off('error');
       socket.off('game_started');
       socket.off('phase_change');
+      socket.off('vote_results');
     };
   }, []);
 
@@ -68,17 +79,26 @@ export default function Home() {
     socket.emit('join_game', { name, roomCode: code });
   };
 
-  if (phase === 'DAY') {
-    return <DayPhase />;
+  // Results screen
+  if (phase === 'RESULTS' && voteResults) {
+    return <GameResults results={voteResults} />;
   }
 
-  if (gameData && phase !== 'DAY') { // Assuming NIGHT is handled by GameTable
+  // Day phase — voting
+  if (phase === 'DAY') {
+    return <DayPhase players={dayPlayers} roomCode={roomCode} />;
+  }
+
+  // Night phase — game table
+  if (gameData && (phase === 'NIGHT' || phase === 'LOBBY')) {
     return <GameTable role={gameData.role} players={gameData.players} centerCardsCount={gameData.centerCardsCount} roomCode={gameData.roomCode} />;
   }
 
-  if (!isInLobby) {
-    return <Login onCreate={handleCreate} onJoin={handleJoin} />;
+  // Lobby
+  if (isInLobby) {
+    return <Lobby playerName={playerName} roomCode={roomCode} initialPlayers={initialPlayers} />;
   }
 
-  return <Lobby playerName={playerName} roomCode={roomCode} initialPlayers={initialPlayers} />;
+  // Login
+  return <Login onCreate={handleCreate} onJoin={handleJoin} />;
 }
