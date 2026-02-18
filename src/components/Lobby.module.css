@@ -1,7 +1,7 @@
 .container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 100vh;
     padding: 20px;
     max-width: 600px;
     margin: 0 auto;
@@ -19,8 +19,6 @@
 }
 
 .playerList {
-    flex: 1;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -68,8 +66,95 @@
 .waiting {
     text-align: center;
     color: var(--secondary);
-    margin-top: 40px;
+    margin-top: 20px;
 }
+
+/* ── Role Selection ── */
+
+.roleSection {
+    margin-bottom: 20px;
+}
+
+.roleToggle {
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: var(--foreground);
+    padding: 12px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s;
+}
+
+.roleToggle:hover {
+    border-color: var(--primary);
+}
+
+.chevron {
+    font-size: 0.7rem;
+    color: var(--secondary);
+}
+
+.roleGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 0;
+    justify-content: center;
+}
+
+.roleChip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    border: 1.5px solid transparent;
+}
+
+.roleChip:disabled {
+    cursor: default;
+}
+
+.roleSelected {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: var(--primary);
+    color: var(--foreground);
+}
+
+.roleUnselected {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--card-border);
+    color: var(--secondary);
+    opacity: 0.6;
+}
+
+.roleUnselected:hover:not(:disabled) {
+    opacity: 0.9;
+    border-color: var(--secondary);
+}
+
+.roleEmoji {
+    font-size: 1rem;
+}
+
+.roleHint {
+    text-align: center;
+    color: var(--secondary);
+    font-size: 0.8rem;
+    margin-top: 4px;
+}
+
+/* ── Controls ── */
 
 .controls {
     padding: 20px 0;
@@ -78,6 +163,7 @@
     flex-direction: column;
     gap: 16px;
     align-items: center;
+    margin-top: auto;
 }
 
 @keyframes fadeIn {

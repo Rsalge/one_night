@@ -13,10 +13,12 @@ export default function Home() {
   const [roomCode, setRoomCode] = useState('');
   const [isInLobby, setIsInLobby] = useState(false);
   const [initialPlayers, setInitialPlayers] = useState([]);
+  const [initialRoles, setInitialRoles] = useState([]);
   const [gameData, setGameData] = useState(null);
   const [phase, setPhase] = useState('LOBBY');
   const [dayPlayers, setDayPlayers] = useState([]);
   const [voteResults, setVoteResults] = useState(null);
+  const [isHost, setIsHost] = useState(false);
 
   useEffect(() => {
     const socket = getSocket();
@@ -25,16 +27,22 @@ export default function Home() {
       console.log('Connected to server');
     });
 
-    socket.on('game_created', ({ roomCode, players }) => {
+    socket.on('game_created', ({ roomCode, players, selectedRoles }) => {
       setRoomCode(roomCode);
       setInitialPlayers(players || []);
+      setInitialRoles(selectedRoles || []);
+      setIsHost(true);
       setIsInLobby(true);
+      setPhase('LOBBY');
     });
 
-    socket.on('joined_room', ({ roomCode, players }) => {
+    socket.on('joined_room', ({ roomCode, players, selectedRoles }) => {
       setRoomCode(roomCode);
       setInitialPlayers(players || []);
+      setInitialRoles(selectedRoles || []);
+      setIsHost(false);
       setIsInLobby(true);
+      setPhase('LOBBY');
     });
 
     socket.on('error', ({ message }) => {
@@ -44,6 +52,7 @@ export default function Home() {
     socket.on('game_started', (data) => {
       setGameData(data);
       setPhase('NIGHT');
+      setIsInLobby(false);
     });
 
     socket.on('phase_change', ({ phase, players }) => {
@@ -56,6 +65,20 @@ export default function Home() {
       setPhase('RESULTS');
     });
 
+    socket.on('return_to_lobby', ({ players, selectedRoles }) => {
+      setInitialPlayers(players);
+      setInitialRoles(selectedRoles || []);
+      setGameData(null);
+      setVoteResults(null);
+      setDayPlayers([]);
+      setPhase('LOBBY');
+      setIsInLobby(true);
+      // Re-check host status
+      const myId = socket.id;
+      const me = players.find(p => p.id === myId);
+      setIsHost(me?.isHost || false);
+    });
+
     return () => {
       socket.off('connect');
       socket.off('game_created');
@@ -64,6 +87,7 @@ export default function Home() {
       socket.off('game_started');
       socket.off('phase_change');
       socket.off('vote_results');
+      socket.off('return_to_lobby');
     };
   }, []);
 
@@ -81,7 +105,7 @@ export default function Home() {
 
   // Results screen
   if (phase === 'RESULTS' && voteResults) {
-    return <GameResults results={voteResults} />;
+    return <GameResults results={voteResults} isHost={isHost} roomCode={roomCode} />;
   }
 
   // Day phase — voting
@@ -90,13 +114,13 @@ export default function Home() {
   }
 
   // Night phase — game table
-  if (gameData && (phase === 'NIGHT' || phase === 'LOBBY')) {
+  if (gameData && phase === 'NIGHT') {
     return <GameTable role={gameData.role} players={gameData.players} centerCardsCount={gameData.centerCardsCount} roomCode={gameData.roomCode} />;
   }
 
   // Lobby
   if (isInLobby) {
-    return <Lobby playerName={playerName} roomCode={roomCode} initialPlayers={initialPlayers} />;
+    return <Lobby playerName={playerName} roomCode={roomCode} initialPlayers={initialPlayers} initialRoles={initialRoles} />;
   }
 
   // Login

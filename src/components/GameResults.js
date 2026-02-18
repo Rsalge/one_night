@@ -1,8 +1,9 @@
 'use client';
 
 import styles from './GameResults.module.css';
+import { getSocket } from '@/lib/socket';
 
-export default function GameResults({ results }) {
+export default function GameResults({ results, isHost, roomCode }) {
     const { eliminated, winners, winReason, voteBreakdown, roleReveal, centerCards } = results;
 
     const isWerewolfWin = winners.includes('Werewolf');
@@ -19,6 +20,11 @@ export default function GameResults({ results }) {
         bannerClass = styles.tannerBanner;
         bannerEmoji = '🃏';
     }
+
+    const handlePlayAgain = () => {
+        const socket = getSocket();
+        socket.emit('restart_game', { roomCode });
+    };
 
     return (
         <div className={styles.container}>
@@ -81,6 +87,17 @@ export default function GameResults({ results }) {
                             <span key={i} className={styles.centerCard}>{c}</span>
                         ))}
                     </div>
+                )}
+            </div>
+
+            {/* Play Again */}
+            <div className={styles.playAgain}>
+                {isHost ? (
+                    <button className={`btn ${styles.playAgainBtn}`} onClick={handlePlayAgain}>
+                        🔄 Play Again
+                    </button>
+                ) : (
+                    <p className={styles.waitHost}>Waiting for host to start a new game...</p>
                 )}
             </div>
         </div>

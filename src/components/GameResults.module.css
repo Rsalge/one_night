@@ -197,3 +197,20 @@
     border-radius: 6px;
     font-size: 0.85rem;
 }
+
+.playAgain {
+    width: 100%;
+    max-width: 500px;
+    text-align: center;
+    padding: 20px 0;
+}
+
+.playAgainBtn {
+    font-size: 1.1rem;
+    padding: 14px 32px;
+}
+
+.waitHost {
+    color: var(--secondary);
+    font-style: italic;
+}

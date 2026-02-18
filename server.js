@@ -57,16 +57,23 @@ app.prepare().then(() => {
                 role: null,
             };
 
+            const ALL_ROLES = [
+                'Werewolf', 'Werewolf', 'Seer', 'Robber', 'Troublemaker',
+                'Villager', 'Villager', 'Villager', 'Mason', 'Mason',
+                'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner'
+            ];
+
             const newGame = {
                 code: roomCode,
                 players: [newPlayer],
                 state: 'LOBBY',
+                selectedRoles: [...ALL_ROLES], // Default: all roles
             };
 
             games.set(roomCode, newGame);
             socket.join(roomCode);
 
-            socket.emit('game_created', { roomCode, players: newGame.players });
+            socket.emit('game_created', { roomCode, players: newGame.players, selectedRoles: newGame.selectedRoles });
             io.to(roomCode).emit('update_players', newGame.players);
             console.log(`Game created: ${roomCode} by ${name}`);
         });
@@ -97,7 +104,7 @@ app.prepare().then(() => {
 
             io.to(room).emit('update_players', game.players);
             // Emit success to joiner so they know to switch view
-            socket.emit('joined_room', { roomCode: room, players: game.players });
+            socket.emit('joined_room', { roomCode: room, players: game.players, selectedRoles: game.selectedRoles });
             console.log(`Player ${name} joined ${room}`);
         });
 
@@ -265,21 +272,21 @@ app.prepare().then(() => {
 
             if (game.players.length < 1) return;
 
-            const availableRoles = [
-                'Werewolf', 'Werewolf', 'Seer', 'Robber', 'Troublemaker',
-                'Villager', 'Villager', 'Villager', 'Mason', 'Mason',
-                'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner'
-            ];
-
-            let rolesToUse = availableRoles.slice(0, game.players.length + 3);
-            rolesToUse = rolesToUse.sort(() => Math.random() - 0.5);
+            const rolesToUse = [...game.selectedRoles];
+            // Ensure we have exactly players + 3 roles
+            const needed = game.players.length + 3;
+            if (rolesToUse.length < needed) {
+                socket.emit('error', { message: `Need ${needed} roles but only ${rolesToUse.length} selected.` });
+                return;
+            }
+            const shuffled = rolesToUse.slice(0, needed).sort(() => Math.random() - 0.5);
 
             game.players.forEach((p, i) => {
-                p.role = rolesToUse[i];
-                p.originalRole = rolesToUse[i]; // Track original role for night logic
+                p.role = shuffled[i];
+                p.originalRole = shuffled[i];
             });
 
-            game.centerRoles = rolesToUse.slice(game.players.length);
+            game.centerRoles = shuffled.slice(game.players.length);
             game.state = 'NIGHT';
             game.nightIndex = 0;
 
@@ -502,6 +509,43 @@ app.prepare().then(() => {
 
                 console.log(`Game ${roomCode} ended. Winners: ${winners.join(', ')}`);
             }
+        });
+
+        socket.on('update_roles', ({ roomCode, selectedRoles }) => {
+            const game = games.get(roomCode);
+            if (!game || game.state !== 'LOBBY') return;
+
+            const player = game.players.find(p => p.id === socket.id);
+            if (!player || !player.isHost) return;
+
+            game.selectedRoles = selectedRoles;
+            io.to(roomCode).emit('roles_updated', { selectedRoles });
+            console.log(`Roles updated for ${roomCode}: ${selectedRoles.length} roles`);
+        });
+
+        socket.on('restart_game', ({ roomCode }) => {
+            const game = games.get(roomCode);
+            if (!game) return;
+
+            const player = game.players.find(p => p.id === socket.id);
+            if (!player || !player.isHost) return;
+
+            // Reset game state
+            game.state = 'LOBBY';
+            game.votes = {};
+            game.nightIndex = 0;
+            game.centerRoles = [];
+            game.players.forEach(p => {
+                p.role = null;
+                p.originalRole = null;
+                p.ready = false;
+            });
+
+            io.to(roomCode).emit('return_to_lobby', {
+                players: game.players,
+                selectedRoles: game.selectedRoles
+            });
+            console.log(`Game ${roomCode} restarted by host`);
         });
     });
 
