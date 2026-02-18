@@ -147,12 +147,17 @@ app.prepare().then(() => {
 
             if (role === 'Werewolf') {
                 const wolves = game.players.filter(p => p.originalRole === 'Werewolf');
+                if (wolves.length > 1) {
+                    const wolfNames = wolves.map(w => w.name).join(' & ');
+                    game.nightLog.push({ role: 'Werewolf', description: `${wolfNames} see each other as Werewolves` });
+                } else if (wolves.length === 1) {
+                    game.nightLog.push({ role: 'Werewolf', description: `${wolves[0].name} is the lone Werewolf` });
+                }
                 wolves.forEach(w => {
                     const otherWolves = wolves.filter(o => o.id !== w.id).map(o => o.name);
                     if (otherWolves.length > 0) {
                         results[w.id] = { type: 'info', message: `Fellow werewolf: ${otherWolves.join(', ')}` };
                     } else {
-                        // Lone wolf — could view center, but we auto-skip for simplicity
                         results[w.id] = { type: 'info', message: 'You are the lone wolf.' };
                     }
                 });
@@ -162,14 +167,21 @@ app.prepare().then(() => {
                 const wolfNames = game.players.filter(p => p.originalRole === 'Werewolf').map(p => p.name);
                 minions.forEach(m => {
                     if (wolfNames.length > 0) {
+                        game.nightLog.push({ role: 'Minion', description: `${m.name} (Minion) sees ${wolfNames.join(' & ')} as Werewolves` });
                         results[m.id] = { type: 'info', message: `Werewolves: ${wolfNames.join(', ')}` };
                     } else {
+                        game.nightLog.push({ role: 'Minion', description: `${m.name} (Minion) sees no Werewolves` });
                         results[m.id] = { type: 'info', message: 'No werewolves among players.' };
                     }
                 });
             }
             else if (role === 'Mason') {
                 const masons = game.players.filter(p => p.originalRole === 'Mason');
+                if (masons.length > 1) {
+                    game.nightLog.push({ role: 'Mason', description: `${masons.map(m => m.name).join(' & ')} see each other as Masons` });
+                } else if (masons.length === 1) {
+                    game.nightLog.push({ role: 'Mason', description: `${masons[0].name} is the only Mason` });
+                }
                 masons.forEach(m => {
                     const otherMasons = masons.filter(o => o.id !== m.id).map(o => o.name);
                     if (otherMasons.length > 0) {
@@ -182,6 +194,7 @@ app.prepare().then(() => {
             else if (role === 'Insomniac') {
                 const insomniacs = game.players.filter(p => p.originalRole === 'Insomniac');
                 insomniacs.forEach(ins => {
+                    game.nightLog.push({ role: 'Insomniac', description: `${ins.name} (Insomniac) looks at their card and sees ${ins.role}` });
                     results[ins.id] = { type: 'info', message: `Your card is now: ${ins.role}` };
                 });
             }
@@ -289,6 +302,7 @@ app.prepare().then(() => {
             game.centerRoles = shuffled.slice(game.players.length);
             game.state = 'NIGHT';
             game.nightIndex = 0;
+            game.nightLog = [];
 
             // Emit to each player in the room
             game.players.forEach((p) => {
@@ -322,10 +336,14 @@ app.prepare().then(() => {
             if (player.originalRole === 'Seer') {
                 if (targetIds.length === 1 && typeof targetIds[0] === 'string') {
                     const target = game.players.find(p => p.id === targetIds[0]);
-                    if (target) result = { type: 'view', role: target.role, name: target.name };
+                    if (target) {
+                        result = { type: 'view', role: target.role, name: target.name };
+                        game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at ${target.name}'s card and sees ${target.role}` });
+                    }
                 } else if (targetIds.length === 2 && targetIds.every(id => typeof id === 'number')) {
                     const cards = targetIds.map(idx => game.centerRoles[idx]);
                     result = { type: 'view_center', cards };
+                    game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at 2 center cards and sees ${cards.join(' & ')}` });
                 }
             }
             else if (player.originalRole === 'Robber') {
@@ -335,6 +353,7 @@ app.prepare().then(() => {
                     player.role = target.role;
                     target.role = myRole;
                     result = { type: 'swap_view', newRole: player.role, name: target.name };
+                    game.nightLog.push({ role: 'Robber', description: `${player.name} (Robber) swaps with ${target.name} and is now ${player.role}` });
                 }
             }
             else if (player.originalRole === 'Troublemaker') {
@@ -345,6 +364,7 @@ app.prepare().then(() => {
                     p1.role = p2.role;
                     p2.role = temp;
                     result = { type: 'swap', message: `Swapped ${p1.name} and ${p2.name}.` };
+                    game.nightLog.push({ role: 'Troublemaker', description: `${player.name} (Troublemaker) swaps ${p1.name}'s and ${p2.name}'s cards` });
                 }
             }
             else if (player.originalRole === 'Drunk') {
@@ -354,6 +374,7 @@ app.prepare().then(() => {
                     player.role = game.centerRoles[centerIdx];
                     game.centerRoles[centerIdx] = myRole;
                     result = { type: 'swap_center', message: 'You swapped with a center card.' };
+                    game.nightLog.push({ role: 'Drunk', description: `${player.name} (Drunk) blindly swaps their card with center card ${centerIdx + 1}` });
                 }
             }
 
@@ -498,13 +519,32 @@ app.prepare().then(() => {
 
                 game.state = 'RESULTS';
 
+                // Determine per-player win/loss
+                const werewolfTeamRoles = ['Werewolf', 'Minion'];
+                const playerResults = game.players.map(p => {
+                    const currentRole = p.role;
+                    let didWin = false;
+
+                    if (currentRole === 'Tanner') {
+                        didWin = winners.includes('Tanner');
+                    } else if (werewolfTeamRoles.includes(currentRole)) {
+                        didWin = winners.includes('Werewolf');
+                    } else {
+                        didWin = winners.includes('Village');
+                    }
+
+                    return { id: p.id, didWin };
+                });
+
                 io.to(roomCode).emit('vote_results', {
                     eliminated,
                     winners,
                     winReason,
                     voteBreakdown,
                     roleReveal,
-                    centerCards: game.centerRoles
+                    centerCards: game.centerRoles,
+                    nightLog: game.nightLog || [],
+                    playerResults
                 });
 
                 console.log(`Game ${roomCode} ended. Winners: ${winners.join(', ')}`);
