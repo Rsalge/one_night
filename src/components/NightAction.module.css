@@ -1,0 +1,70 @@
+.container {
+    margin-top: 20px;
+    width: 100%;
+    max-width: 500px;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 20px;
+    border-radius: 12px;
+}
+
+.instructions {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.hint {
+    color: var(--secondary);
+    font-style: italic;
+    margin-top: 8px;
+}
+
+.result {
+    background: var(--primary-glow);
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: bold;
+    margin-bottom: 20px;
+    border: 1px solid var(--primary);
+}
+
+.targets {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.playerGrid,
+.centerGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+}
+
+.targetBtn {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: var(--foreground);
+    padding: 10px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.targetBtn:hover {
+    border-color: var(--primary);
+}
+
+.targetBtn.selected {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.doneBtn {
+    width: 100%;
+    margin-top: 20px;
+    background: var(--secondary);
+}
