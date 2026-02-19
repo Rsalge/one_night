@@ -1,12 +1,41 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Login from '@/components/Login';
 import Lobby from '@/components/Lobby';
 import GameTable from '@/components/GameTable';
 import DayPhase from '@/components/DayPhase';
 import GameResults from '@/components/GameResults';
 import { getSocket } from '@/lib/socket';
+
+function getSessionId() {
+  let sid = sessionStorage.getItem('onw_sessionId');
+  if (!sid) {
+    sid = crypto.randomUUID();
+    sessionStorage.setItem('onw_sessionId', sid);
+  }
+  return sid;
+}
+
+function saveSession(playerName, roomCode) {
+  sessionStorage.setItem('onw_playerName', playerName);
+  sessionStorage.setItem('onw_roomCode', roomCode);
+}
+
+function clearSession() {
+  sessionStorage.removeItem('onw_playerName');
+  sessionStorage.removeItem('onw_roomCode');
+}
+
+function getSavedSession() {
+  const playerName = sessionStorage.getItem('onw_playerName');
+  const roomCode = sessionStorage.getItem('onw_roomCode');
+  const sessionId = sessionStorage.getItem('onw_sessionId');
+  if (playerName && roomCode && sessionId) {
+    return { playerName, roomCode, sessionId };
+  }
+  return null;
+}
 
 export default function Home() {
   const [playerName, setPlayerName] = useState('');
@@ -19,12 +48,27 @@ export default function Home() {
   const [dayPlayers, setDayPlayers] = useState([]);
   const [voteResults, setVoteResults] = useState(null);
   const [isHost, setIsHost] = useState(false);
+  const hasAttemptedRejoin = useRef(false);
 
   useEffect(() => {
     const socket = getSocket();
 
     socket.on('connect', () => {
       console.log('Connected to server');
+
+      // Attempt rejoin on connect if we have a saved session
+      if (!hasAttemptedRejoin.current) {
+        hasAttemptedRejoin.current = true;
+        const saved = getSavedSession();
+        if (saved) {
+          console.log('Attempting rejoin...', saved);
+          socket.emit('rejoin_game', {
+            sessionId: saved.sessionId,
+            roomCode: saved.roomCode,
+            playerName: saved.playerName
+          });
+        }
+      }
     });
 
     socket.on('game_created', ({ roomCode, players, selectedRoles }) => {
@@ -34,18 +78,36 @@ export default function Home() {
       setIsHost(true);
       setIsInLobby(true);
       setPhase('LOBBY');
+
+      // Handle session persistence
+      const name = sessionStorage.getItem('onw_playerName') || playerName;
+      saveSession(name, roomCode);
+      socket.emit('set_session', { sessionId: getSessionId(), roomCode });
     });
 
     socket.on('joined_room', ({ roomCode, players, selectedRoles }) => {
       setRoomCode(roomCode);
       setInitialPlayers(players || []);
       setInitialRoles(selectedRoles || []);
-      setIsHost(false);
       setIsInLobby(true);
       setPhase('LOBBY');
+
+      // Check if we're host
+      const me = players?.find(p => p.id === socket.id);
+      setIsHost(me?.isHost || false);
+
+      // Handle session persistence
+      const name = sessionStorage.getItem('onw_playerName') || playerName;
+      saveSession(name, roomCode);
+      socket.emit('set_session', { sessionId: getSessionId(), roomCode });
     });
 
     socket.on('error', ({ message }) => {
+      // If rejoin failed, silently clear session and show login
+      if (message.includes('Session not found') || message.includes('Room not found. Game may have ended.')) {
+        clearSession();
+        return;
+      }
       alert(message);
     });
 
@@ -53,6 +115,9 @@ export default function Home() {
       setGameData(data);
       setPhase('NIGHT');
       setIsInLobby(false);
+      if (data.roomCode) {
+        setRoomCode(data.roomCode);
+      }
     });
 
     socket.on('phase_change', ({ phase, players }) => {
@@ -73,7 +138,6 @@ export default function Home() {
       setDayPlayers([]);
       setPhase('LOBBY');
       setIsInLobby(true);
-      // Re-check host status
       const myId = socket.id;
       const me = players.find(p => p.id === myId);
       setIsHost(me?.isHost || false);
@@ -93,12 +157,14 @@ export default function Home() {
 
   const handleCreate = (name) => {
     setPlayerName(name);
+    sessionStorage.setItem('onw_playerName', name);
     const socket = getSocket();
     socket.emit('create_game', { name });
   };
 
   const handleJoin = (name, code) => {
     setPlayerName(name);
+    sessionStorage.setItem('onw_playerName', name);
     const socket = getSocket();
     socket.emit('join_game', { name, roomCode: code });
   };
