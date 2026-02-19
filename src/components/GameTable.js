@@ -8,8 +8,9 @@ import { getSocket } from '@/lib/socket';
 
 export default function GameTable({ role, players, centerCardsCount, roomCode }) {
     const [myId, setMyId] = useState(null);
-    const [nightTurn, setNightTurn] = useState(null); // { activeRole, activePlayerIds, flavor, isInteractive }
+    const [nightTurn, setNightTurn] = useState(null);
     const [actionResult, setActionResult] = useState(null);
+    const [acknowledged, setAcknowledged] = useState(false);
 
     useEffect(() => {
         const socket = getSocket();
@@ -17,7 +18,8 @@ export default function GameTable({ role, players, centerCardsCount, roomCode })
 
         socket.on('night_turn', (data) => {
             setNightTurn(data);
-            setActionResult(null); // Reset result for new turn
+            setActionResult(null);
+            setAcknowledged(false);
         });
 
         socket.on('action_result', (result) => {
@@ -29,7 +31,25 @@ export default function GameTable({ role, players, centerCardsCount, roomCode })
                 if (result.type === 'swap') msg = result.message;
                 if (result.type === 'swap_center') msg = result.message;
                 if (result.type === 'info') msg = result.message;
+                if (result.type === 'pi_result') {
+                    const lines = result.viewed.map(v => `${v.name}: ${v.role}`).join(', ');
+                    msg = result.becameRole
+                        ? `Investigated: ${lines}. You are now ${result.becameRole}!`
+                        : `Investigated: ${lines}`;
+                }
+                if (result.type === 'witch_result') {
+                    msg = `Center card: ${result.viewedCard}.`;
+                    if (result.swapped) msg += ` Swapped with ${result.targetName}.`;
+                    else if (result.shielded) msg += ' Target was shielded \u2014 no swap.';
+                    else msg += ' You chose not to swap.';
+                }
+                if (result.type === 'reveal') {
+                    msg = result.staysRevealed
+                        ? `${result.name}'s card is ${result.role} \u2014 stays face-up!`
+                        : `${result.name}'s card is ${result.role} (flipped back).`;
+                }
                 setActionResult(msg);
+                setAcknowledged(false);
             }
         });
 
@@ -39,19 +59,25 @@ export default function GameTable({ role, players, centerCardsCount, roomCode })
         };
     }, []);
 
+    const handleAcknowledge = () => {
+        const socket = getSocket();
+        socket.emit('acknowledge_night', { roomCode });
+        setAcknowledged(true);
+    };
+
     const otherPlayers = players.filter(p => p.id !== myId);
     const isMyTurn = nightTurn && nightTurn.activePlayerIds?.includes(myId);
     const isInteractive = nightTurn?.isInteractive;
 
     return (
         <div className={styles.container}>
-            <h2 className="title">🌙 Night Phase</h2>
+            <h2 className="title">\uD83C\uDF19 Night Phase</h2>
 
             <div className={styles.area}>
                 <RoleCard role={role} />
             </div>
 
-            {/* Flavor text banner — everyone sees this */}
+            {/* Flavor text banner \u2014 everyone sees this */}
             {nightTurn && (
                 <div className={styles.narrator}>
                     <p className={styles.flavorText}>{nightTurn.flavor}</p>
@@ -65,19 +91,31 @@ export default function GameTable({ role, players, centerCardsCount, roomCode })
                 </div>
             )}
 
-            {/* Action result display */}
-            {actionResult && (
+            {/* Action result with acknowledge button */}
+            {actionResult && !acknowledged && (
                 <div className={styles.actionResult}>
-                    {actionResult}
+                    <p>{actionResult}</p>
+                    <button className={`btn ${styles.ackBtn}`} onClick={handleAcknowledge}>
+                        Got it \uD83D\uDC4D
+                    </button>
                 </div>
             )}
 
-            {/* Interactive action UI — only for the active role player */}
+            {/* After acknowledging, show go-back-to-sleep */}
+            {actionResult && acknowledged && (
+                <div className={styles.waiting}>
+                    <div className={styles.spinner}></div>
+                    <p>Go back to sleep...</p>
+                </div>
+            )}
+
+            {/* Interactive action UI \u2014 only for the active role player */}
             {isMyTurn && isInteractive && !actionResult && (
                 <NightAction
                     role={nightTurn.activeRole}
                     players={otherPlayers}
                     roomCode={roomCode}
+                    centerCardsCount={centerCardsCount}
                 />
             )}
 
@@ -89,15 +127,8 @@ export default function GameTable({ role, players, centerCardsCount, roomCode })
                 </div>
             )}
 
-            {/* Player who just acted sees their result briefly */}
-            {isMyTurn && actionResult && (
-                <div className={styles.waiting}>
-                    <p>Go back to sleep...</p>
-                </div>
-            )}
-
             <div className={styles.info}>
-                <p>Players: {players.length} · Center Cards: {centerCardsCount}</p>
+                <p>Players: {players.length} \u00B7 Center Cards: {centerCardsCount}</p>
             </div>
         </div>
     );

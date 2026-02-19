@@ -2,10 +2,11 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
+const { NIGHT_ORDER, INTERACTIVE_ROLES, WOLF_WAKE_ROLES, ALL_WOLF_ROLES, autoResolveRole, processNightAction, getNextNightTurn } = require('./gameLogic');
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = 'localhost';
-const port = 3000;
+const hostname = dev ? 'localhost' : '0.0.0.0';
+const port = parseInt(process.env.PORT, 10) || 3000;
 // when using middleware `hostname` and `port` must be provided below
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -60,7 +61,11 @@ app.prepare().then(() => {
             const ALL_ROLES = [
                 'Werewolf', 'Werewolf', 'Seer', 'Robber', 'Troublemaker',
                 'Villager', 'Villager', 'Villager', 'Mason', 'Mason',
-                'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner'
+                'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner',
+                // Daybreak
+                'Alpha Wolf', 'Mystic Wolf', 'Dream Wolf',
+                'Apprentice Seer', 'Paranormal Investigator',
+                'Witch', 'Sentinel', 'Revealer'
             ];
 
             const newGame = {
@@ -132,148 +137,121 @@ app.prepare().then(() => {
             }
         });
 
-        // ── Night Phase Order ──
-        const NIGHT_ORDER = [
-            'Werewolf', 'Minion', 'Mason', 'Seer',
-            'Robber', 'Troublemaker', 'Drunk', 'Insomniac'
-        ];
-
-        // Roles that require player input (interactive)
-        const INTERACTIVE_ROLES = ['Seer', 'Robber', 'Troublemaker', 'Drunk'];
-
-        // Auto-resolve passive roles and return info
-        function autoResolveRole(game, role) {
-            const results = {};
-
-            if (role === 'Werewolf') {
-                const wolves = game.players.filter(p => p.originalRole === 'Werewolf');
-                if (wolves.length > 1) {
-                    const wolfNames = wolves.map(w => w.name).join(' & ');
-                    game.nightLog.push({ role: 'Werewolf', description: `${wolfNames} see each other as Werewolves` });
-                } else if (wolves.length === 1) {
-                    game.nightLog.push({ role: 'Werewolf', description: `${wolves[0].name} is the lone Werewolf` });
-                }
-                wolves.forEach(w => {
-                    const otherWolves = wolves.filter(o => o.id !== w.id).map(o => o.name);
-                    if (otherWolves.length > 0) {
-                        results[w.id] = { type: 'info', message: `Fellow werewolf: ${otherWolves.join(', ')}` };
-                    } else {
-                        results[w.id] = { type: 'info', message: 'You are the lone wolf.' };
-                    }
-                });
-            }
-            else if (role === 'Minion') {
-                const minions = game.players.filter(p => p.originalRole === 'Minion');
-                const wolfNames = game.players.filter(p => p.originalRole === 'Werewolf').map(p => p.name);
-                minions.forEach(m => {
-                    if (wolfNames.length > 0) {
-                        game.nightLog.push({ role: 'Minion', description: `${m.name} (Minion) sees ${wolfNames.join(' & ')} as Werewolves` });
-                        results[m.id] = { type: 'info', message: `Werewolves: ${wolfNames.join(', ')}` };
-                    } else {
-                        game.nightLog.push({ role: 'Minion', description: `${m.name} (Minion) sees no Werewolves` });
-                        results[m.id] = { type: 'info', message: 'No werewolves among players.' };
-                    }
-                });
-            }
-            else if (role === 'Mason') {
-                const masons = game.players.filter(p => p.originalRole === 'Mason');
-                if (masons.length > 1) {
-                    game.nightLog.push({ role: 'Mason', description: `${masons.map(m => m.name).join(' & ')} see each other as Masons` });
-                } else if (masons.length === 1) {
-                    game.nightLog.push({ role: 'Mason', description: `${masons[0].name} is the only Mason` });
-                }
-                masons.forEach(m => {
-                    const otherMasons = masons.filter(o => o.id !== m.id).map(o => o.name);
-                    if (otherMasons.length > 0) {
-                        results[m.id] = { type: 'info', message: `Fellow mason: ${otherMasons.join(', ')}` };
-                    } else {
-                        results[m.id] = { type: 'info', message: 'You are the only mason.' };
-                    }
-                });
-            }
-            else if (role === 'Insomniac') {
-                const insomniacs = game.players.filter(p => p.originalRole === 'Insomniac');
-                insomniacs.forEach(ins => {
-                    game.nightLog.push({ role: 'Insomniac', description: `${ins.name} (Insomniac) looks at their card and sees ${ins.role}` });
-                    results[ins.id] = { type: 'info', message: `Your card is now: ${ins.role}` };
-                });
-            }
-
-            return results;
-        }
+        // ── Night Phase ──
+        // autoResolveRole, processNightAction, getNextNightTurn, NIGHT_ORDER, INTERACTIVE_ROLES
+        // are imported from gameLogic.js
 
         function advanceNightPhase(roomCode) {
             const game = games.get(roomCode);
             if (!game || game.state !== 'NIGHT') return;
 
-            // Find next role in order that has a player
-            while (game.nightIndex < NIGHT_ORDER.length) {
-                const currentRole = NIGHT_ORDER[game.nightIndex];
-                const playersWithRole = game.players.filter(p => p.originalRole === currentRole);
+            const turn = getNextNightTurn(game);
 
-                if (playersWithRole.length === 0) {
-                    game.nightIndex++;
-                    continue;
+            if (turn.done) {
+                // All roles done — transition to DAY
+                game.state = 'DAY';
+                game.votes = {};
+                io.to(roomCode).emit('phase_change', {
+                    phase: 'DAY',
+                    players: game.players.map(p => ({ id: p.id, name: p.name }))
+                });
+                console.log(`Game ${roomCode} switching to DAY`);
+                return;
+            }
+
+            const { role: currentRole, players: playersWithRole, isInteractive } = turn;
+
+            const flavorText = {
+                'Sentinel': 'Sentinel, wake up. You may place a shield on another player\'s card.',
+                'Werewolf': 'Werewolves, wake up and look for other werewolves.',
+                'Alpha Wolf': 'Alpha Wolf, wake up. Choose a non-wolf player to turn into a Werewolf.',
+                'Mystic Wolf': 'Mystic Wolf, wake up. You may look at another player\'s card.',
+                'Minion': 'Minion, wake up. Werewolves, stick out your thumb.',
+                'Mason': 'Masons, wake up and look for other masons.',
+                'Seer': 'Seer, wake up. You may look at another player\'s card or two center cards.',
+                'Apprentice Seer': 'Apprentice Seer, wake up. You may look at one center card.',
+                'Paranormal Investigator': 'P.I., wake up. You may look at up to two players\' cards.',
+                'Robber': 'Robber, wake up. You may exchange your card with another player\'s card.',
+                'Witch': 'Witch, wake up. Look at a center card. You may swap it with any player\'s card.',
+                'Troublemaker': 'Troublemaker, wake up. You may exchange cards between two other players.',
+                'Drunk': 'Drunk, wake up and exchange your card with a card from the center.',
+                'Insomniac': 'Insomniac, wake up and look at your card.',
+                'Revealer': 'Revealer, wake up. You may flip another player\'s card face up.'
+            };
+
+            console.log(`Night turn: ${currentRole} (interactive: ${isInteractive})`);
+
+            if (isInteractive) {
+                const activeIds = playersWithRole.map(p => p.id);
+                let flavor = flavorText[currentRole] || `${currentRole}, wake up.`;
+                // Lone wolf gets a private flavor
+                if (currentRole === 'Werewolf' && playersWithRole.length === 1) {
+                    flavor = 'You are the lone wolf — you may look at one center card.';
                 }
 
-                // Found a role that's in play
-                const isInteractive = INTERACTIVE_ROLES.includes(currentRole);
-
-                // Flavor text for narrator feel
-                const flavorText = {
-                    'Werewolf': 'Werewolves, wake up and look for other werewolves.',
-                    'Minion': 'Minion, wake up. Werewolves, stick out your thumb.',
-                    'Mason': 'Masons, wake up and look for other masons.',
-                    'Seer': 'Seer, wake up. You may look at another player\'s card or two center cards.',
-                    'Robber': 'Robber, wake up. You may exchange your card with another player\'s card.',
-                    'Troublemaker': 'Troublemaker, wake up. You may exchange cards between two other players.',
-                    'Drunk': 'Drunk, wake up and exchange your card with a card from the center.',
-                    'Insomniac': 'Insomniac, wake up and look at your card.'
-                };
-
-                console.log(`Night turn: ${currentRole} (interactive: ${isInteractive})`);
-
-                if (isInteractive) {
-                    // Wait for player input
-                    io.to(roomCode).emit('night_turn', {
+                // Send full info only to active players
+                activeIds.forEach(pid => {
+                    io.to(pid).emit('night_turn', {
                         activeRole: currentRole,
-                        activePlayerIds: playersWithRole.map(p => p.id),
-                        flavor: flavorText[currentRole] || `${currentRole}, wake up.`,
+                        activePlayerIds: activeIds,
+                        flavor,
                         isInteractive: true
                     });
-                    return; // Wait for night_action from the active player
-                } else {
-                    // Auto-resolve and show briefly, then advance
-                    const results = autoResolveRole(game, currentRole);
+                });
 
-                    io.to(roomCode).emit('night_turn', {
+                // Send generic "close your eyes" to everyone else
+                game.players.forEach(p => {
+                    if (!activeIds.includes(p.id)) {
+                        io.to(p.id).emit('night_turn', {
+                            activeRole: null,
+                            activePlayerIds: [],
+                            flavor: 'Close your eyes...',
+                            isInteractive: false
+                        });
+                    }
+                });
+                return;
+            } else {
+                const results = autoResolveRole(game, currentRole);
+                const activeIds = playersWithRole.map(p => p.id);
+
+                // Send full info only to active players
+                activeIds.forEach(pid => {
+                    io.to(pid).emit('night_turn', {
                         activeRole: currentRole,
-                        activePlayerIds: playersWithRole.map(p => p.id),
+                        activePlayerIds: activeIds,
                         flavor: flavorText[currentRole] || `${currentRole}, wake up.`,
                         isInteractive: false
                     });
+                });
 
-                    // Send results to each affected player
-                    for (const [playerId, result] of Object.entries(results)) {
-                        io.to(playerId).emit('action_result', result);
+                // Send generic message to non-active players
+                game.players.forEach(p => {
+                    if (!activeIds.includes(p.id)) {
+                        io.to(p.id).emit('night_turn', {
+                            activeRole: null,
+                            activePlayerIds: [],
+                            flavor: 'Close your eyes...',
+                            isInteractive: false
+                        });
                     }
+                });
 
-                    game.nightIndex++;
-
-                    // Wait 4 seconds before advancing to next role
-                    setTimeout(() => advanceNightPhase(roomCode), 4000);
-                    return;
+                for (const [playerId, result] of Object.entries(results)) {
+                    io.to(playerId).emit('action_result', result);
                 }
-            }
 
-            // All roles done — transition to DAY
-            game.state = 'DAY';
-            game.votes = {};
-            io.to(roomCode).emit('phase_change', {
-                phase: 'DAY',
-                players: game.players.map(p => ({ id: p.id, name: p.name }))
-            });
-            console.log(`Game ${roomCode} switching to DAY`);
+                // Wait for all players who received results to acknowledge
+                const ackIds = Object.keys(results);
+                if (ackIds.length > 0) {
+                    game.pendingAcks = new Set(ackIds);
+                } else {
+                    // No one received results (shouldn't happen), just advance
+                    game.nightIndex++;
+                    setTimeout(() => advanceNightPhase(roomCode), 1000);
+                }
+                return;
+            }
         }
 
         socket.on('start_game', ({ roomCode }) => {
@@ -300,16 +278,19 @@ app.prepare().then(() => {
             });
 
             game.centerRoles = shuffled.slice(game.players.length);
+
             game.state = 'NIGHT';
             game.nightIndex = 0;
             game.nightLog = [];
+            game.shielded = [];
+            game.revealed = [];
 
             // Emit to each player in the room
             game.players.forEach((p) => {
                 io.to(p.id).emit('game_started', {
                     role: p.role,
                     players: game.players.map(pl => ({ id: pl.id, name: pl.name })),
-                    centerCardsCount: 3,
+                    centerCardsCount: game.centerRoles.length,
                     roomCode: roomCode
                 });
             });
@@ -327,62 +308,33 @@ app.prepare().then(() => {
 
             // Verify this player's originalRole matches the current night turn
             const currentRole = NIGHT_ORDER[game.nightIndex];
-            if (player.originalRole !== currentRole) return;
+            // During the 'Werewolf' group phase, any awake wolf variant can act
+            if (currentRole === 'Werewolf') {
+                if (!WOLF_WAKE_ROLES.includes(player.originalRole)) return;
+            } else {
+                if (player.originalRole !== currentRole) return;
+            }
 
-            console.log(`Action from ${player.name} (${player.originalRole}): ${action}`, targetIds);
-
-            let result = null;
-
-            if (player.originalRole === 'Seer') {
-                if (targetIds.length === 1 && typeof targetIds[0] === 'string') {
-                    const target = game.players.find(p => p.id === targetIds[0]);
-                    if (target) {
-                        result = { type: 'view', role: target.role, name: target.name };
-                        game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at ${target.name}'s card and sees ${target.role}` });
-                    }
-                } else if (targetIds.length === 2 && targetIds.every(id => typeof id === 'number')) {
-                    const cards = targetIds.map(idx => game.centerRoles[idx]);
-                    result = { type: 'view_center', cards };
-                    game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at 2 center cards and sees ${cards.join(' & ')}` });
-                }
-            }
-            else if (player.originalRole === 'Robber') {
-                const target = game.players.find(p => p.id === targetIds[0]);
-                if (target) {
-                    const myRole = player.role;
-                    player.role = target.role;
-                    target.role = myRole;
-                    result = { type: 'swap_view', newRole: player.role, name: target.name };
-                    game.nightLog.push({ role: 'Robber', description: `${player.name} (Robber) swaps with ${target.name} and is now ${player.role}` });
-                }
-            }
-            else if (player.originalRole === 'Troublemaker') {
-                const p1 = game.players.find(p => p.id === targetIds[0]);
-                const p2 = game.players.find(p => p.id === targetIds[1]);
-                if (p1 && p2) {
-                    const temp = p1.role;
-                    p1.role = p2.role;
-                    p2.role = temp;
-                    result = { type: 'swap', message: `Swapped ${p1.name} and ${p2.name}.` };
-                    game.nightLog.push({ role: 'Troublemaker', description: `${player.name} (Troublemaker) swaps ${p1.name}'s and ${p2.name}'s cards` });
-                }
-            }
-            else if (player.originalRole === 'Drunk') {
-                const centerIdx = targetIds[0];
-                if (typeof centerIdx === 'number' && centerIdx >= 0 && centerIdx < 3) {
-                    const myRole = player.role;
-                    player.role = game.centerRoles[centerIdx];
-                    game.centerRoles[centerIdx] = myRole;
-                    result = { type: 'swap_center', message: 'You swapped with a center card.' };
-                    game.nightLog.push({ role: 'Drunk', description: `${player.name} (Drunk) blindly swaps their card with center card ${centerIdx + 1}` });
-                }
-            }
+            let result = processNightAction(game, player, action, targetIds);
 
             socket.emit('action_result', result);
 
-            // Advance to next role after a brief pause
-            game.nightIndex++;
-            setTimeout(() => advanceNightPhase(roomCode), 2000);
+            // Wait for this player to acknowledge before advancing
+            game.pendingAcks = new Set([player.id]);
+        });
+
+        socket.on('acknowledge_night', ({ roomCode }) => {
+            const game = games.get(roomCode);
+            if (!game || game.state !== 'NIGHT') return;
+
+            if (game.pendingAcks) {
+                game.pendingAcks.delete(socket.id);
+                if (game.pendingAcks.size === 0) {
+                    game.pendingAcks = null;
+                    game.nightIndex++;
+                    advanceNightPhase(roomCode);
+                }
+            }
         });
 
         socket.on('cast_vote', ({ roomCode, voteTarget }) => {
@@ -440,13 +392,14 @@ app.prepare().then(() => {
                 // Determine winners
                 // Werewolf team: Werewolf(s), Minion
                 // Village team: everyone else
-                const werewolfRoles = ['Werewolf', 'Minion'];
+                // Wolf team includes all wolf variants + Minion
+                const wolfTeamRoles = [...ALL_WOLF_ROLES, 'Minion'];
 
-                // Check if any werewolf (by current role) was eliminated
-                const werewolfKilled = eliminated.some(e => e.role === 'Werewolf');
+                // Check if any wolf (by current role) was eliminated
+                const werewolfKilled = eliminated.some(e => ALL_WOLF_ROLES.includes(e.role));
 
-                // Check if any werewolf exists among players (by current role)
-                const werewolvesInPlay = game.players.filter(p => p.role === 'Werewolf');
+                // Check if any wolf exists among players (by current role)
+                const werewolvesInPlay = game.players.filter(p => ALL_WOLF_ROLES.includes(p.role));
                 const minionInPlay = game.players.filter(p => p.role === 'Minion');
 
                 // Tanner special case: if Tanner dies, Tanner wins
@@ -520,14 +473,14 @@ app.prepare().then(() => {
                 game.state = 'RESULTS';
 
                 // Determine per-player win/loss
-                const werewolfTeamRoles = ['Werewolf', 'Minion'];
+                const wolfTeamForWin = [...ALL_WOLF_ROLES, 'Minion'];
                 const playerResults = game.players.map(p => {
                     const currentRole = p.role;
                     let didWin = false;
 
                     if (currentRole === 'Tanner') {
                         didWin = winners.includes('Tanner');
-                    } else if (werewolfTeamRoles.includes(currentRole)) {
+                    } else if (wolfTeamForWin.includes(currentRole)) {
                         didWin = winners.includes('Werewolf');
                     } else {
                         didWin = winners.includes('Village');

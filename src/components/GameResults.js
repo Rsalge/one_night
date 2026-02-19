@@ -1,14 +1,34 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import styles from './GameResults.module.css';
 import { getSocket } from '@/lib/socket';
 
+const ROLE_EMOJI = {
+    'Werewolf': '🐺', 'Seer': '🔮', 'Robber': '🦹', 'Troublemaker': '🔀',
+    'Villager': '🧑‍🌾', 'Mason': '🧱', 'Minion': '👹', 'Drunk': '🍺',
+    'Insomniac': '😳', 'Hunter': '🏹', 'Tanner': '🪵',
+    'Alpha Wolf': '🐺', 'Mystic Wolf': '🔮', 'Dream Wolf': '💤',
+    'Apprentice Seer': '🔭', 'Paranormal Investigator': '🕵️',
+    'Witch': '🧙', 'Sentinel': '🛡️', 'Revealer': '👁️'
+};
+
 export default function GameResults({ results, isHost, roomCode }) {
-    const { eliminated, winners, winReason, voteBreakdown, roleReveal, centerCards } = results;
+    const { eliminated, winners, winReason, voteBreakdown, roleReveal, centerCards, nightLog, playerResults } = results;
+    const [myId, setMyId] = useState(null);
+
+    useEffect(() => {
+        const socket = getSocket();
+        if (socket) setMyId(socket.id);
+    }, []);
 
     const isWerewolfWin = winners.includes('Werewolf');
     const isVillageWin = winners.includes('Village');
     const isTannerWin = winners.includes('Tanner');
+
+    // Per-player result
+    const myResult = playerResults?.find(p => p.id === myId);
+    const didWin = myResult?.didWin || false;
 
     let bannerClass = styles.villageBanner;
     let bannerEmoji = '🏘️';
@@ -28,11 +48,36 @@ export default function GameResults({ results, isHost, roomCode }) {
 
     return (
         <div className={styles.container}>
+            {/* Personal Win/Loss */}
+            {myId && (
+                <div className={didWin ? styles.youWin : styles.youLose}>
+                    <span className={styles.bigEmoji}>{didWin ? '🎉' : '💀'}</span>
+                    <h1>{didWin ? 'You Win!' : 'You Lose!'}</h1>
+                </div>
+            )}
+
             <div className={`${styles.banner} ${bannerClass}`}>
                 <span className={styles.emoji}>{bannerEmoji}</span>
                 <h2>{winners.join(' & ')} Win{winners.length === 1 && !winners[0].endsWith('s') ? 's' : ''}!</h2>
                 <p className={styles.reason}>{winReason}</p>
             </div>
+
+            {/* Night Event Log */}
+            {nightLog && nightLog.length > 0 && (
+                <div className={styles.section}>
+                    <h3>🌙 Night Recap</h3>
+                    <div className={styles.nightLog}>
+                        {nightLog.map((entry, i) => (
+                            <div key={i} className={styles.logRow}>
+                                <span className={styles.logEmoji}>{ROLE_EMOJI[entry.role] || '❓'}</span>
+                                <span className={styles.logRole}>{entry.role}</span>
+                                <span className={styles.logArrow}>→</span>
+                                <span className={styles.logDesc}>{entry.description}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {eliminated.length > 0 && (
                 <div className={styles.section}>
@@ -73,9 +118,9 @@ export default function GameResults({ results, isHost, roomCode }) {
                     {roleReveal.map(p => (
                         <div key={p.id} className={styles.roleCard}>
                             <span className={styles.playerName}>{p.name}</span>
-                            <span className={styles.roleName}>{p.originalRole}</span>
+                            <span className={styles.roleName}>{ROLE_EMOJI[p.originalRole]} {p.originalRole}</span>
                             {p.originalRole !== p.finalRole && (
-                                <span className={styles.swapped}>→ {p.finalRole}</span>
+                                <span className={styles.swapped}>→ {ROLE_EMOJI[p.finalRole]} {p.finalRole}</span>
                             )}
                         </div>
                     ))}
@@ -84,7 +129,7 @@ export default function GameResults({ results, isHost, roomCode }) {
                     <div className={styles.centerReveal}>
                         <span className={styles.centerLabel}>Center Cards:</span>
                         {centerCards.map((c, i) => (
-                            <span key={i} className={styles.centerCard}>{c}</span>
+                            <span key={i} className={styles.centerCard}>{ROLE_EMOJI[c]} {c}</span>
                         ))}
                     </div>
                 )}

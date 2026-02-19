@@ -14,7 +14,10 @@ const ALL_AVAILABLE_ROLES = [
 const ROLE_EMOJI = {
     'Werewolf': '🐺', 'Seer': '🔮', 'Robber': '🦹', 'Troublemaker': '🔀',
     'Villager': '🧑‍🌾', 'Mason': '🧱', 'Minion': '👹', 'Drunk': '🍺',
-    'Insomniac': '😳', 'Hunter': '🏹', 'Tanner': '🪵'
+    'Insomniac': '😳', 'Hunter': '🏹', 'Tanner': '🪵',
+    'Alpha Wolf': '🐺', 'Mystic Wolf': '🔮', 'Dream Wolf': '💤',
+    'Apprentice Seer': '🔭', 'Paranormal Investigator': '🕵️',
+    'Witch': '🧙', 'Sentinel': '🛡️', 'Revealer': '👁️'
 };
 
 export default function Lobby({ playerName, roomCode, initialPlayers = [], initialRoles = [] }) {

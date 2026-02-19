@@ -7,6 +7,83 @@
     gap: 24px;
 }
 
+.youWin,
+.youLose {
+    text-align: center;
+    animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.youWin h1 {
+    font-size: 2.2rem;
+    color: #6ee7b7;
+    text-shadow: 0 0 30px rgba(16, 185, 129, 0.5);
+}
+
+.youLose h1 {
+    font-size: 2.2rem;
+    color: #fca5a5;
+    text-shadow: 0 0 30px rgba(239, 68, 68, 0.5);
+}
+
+.bigEmoji {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 4px;
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.nightLog {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.logRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: rgba(139, 92, 246, 0.06);
+    border-radius: 8px;
+    border-left: 3px solid rgba(139, 92, 246, 0.3);
+}
+
+.logEmoji {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.logRole {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--primary);
+    min-width: 80px;
+    flex-shrink: 0;
+}
+
+.logArrow {
+    color: var(--secondary);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.logDesc {
+    font-size: 0.85rem;
+    color: var(--foreground);
+    opacity: 0.9;
+}
+
 .banner {
     width: 100%;
     max-width: 500px;
