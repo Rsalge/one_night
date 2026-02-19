@@ -53,6 +53,7 @@ app.prepare().then(() => {
             const roomCode = generateRoomCode();
             const newPlayer = {
                 id: socket.id,
+                sessionId: null, // will be set by client via set_session
                 name: name.substring(0, 15),
                 isHost: true,
                 role: null,
@@ -73,13 +74,14 @@ app.prepare().then(() => {
                 players: [newPlayer],
                 state: 'LOBBY',
                 selectedRoles: [...ALL_ROLES], // Default: all roles
+                disconnectTimers: {},  // sessionId -> timeout
             };
 
             games.set(roomCode, newGame);
             socket.join(roomCode);
 
             socket.emit('game_created', { roomCode, players: newGame.players, selectedRoles: newGame.selectedRoles });
-            io.to(roomCode).emit('update_players', newGame.players);
+            io.to(roomCode).emit('update_players', newGame.players.filter(p => !p.disconnected));
             console.log(`Game created: ${roomCode} by ${name}`);
         });
 
@@ -99,6 +101,7 @@ app.prepare().then(() => {
 
             const newPlayer = {
                 id: socket.id,
+                sessionId: null,
                 name: name.substring(0, 15),
                 isHost: false, // Joiners are never host
                 role: null,
@@ -107,32 +110,129 @@ app.prepare().then(() => {
             game.players.push(newPlayer);
             socket.join(room);
 
-            io.to(room).emit('update_players', game.players);
+            io.to(room).emit('update_players', game.players.filter(p => !p.disconnected));
             // Emit success to joiner so they know to switch view
-            socket.emit('joined_room', { roomCode: room, players: game.players, selectedRoles: game.selectedRoles });
+            socket.emit('joined_room', { roomCode: room, players: game.players.filter(p => !p.disconnected), selectedRoles: game.selectedRoles });
             console.log(`Player ${name} joined ${room}`);
+        });
+
+        // Client sends sessionId after creating/joining so we can track reconnects
+        socket.on('set_session', ({ sessionId, roomCode }) => {
+            const game = games.get(roomCode);
+            if (!game) return;
+            const player = game.players.find(p => p.id === socket.id);
+            if (player) {
+                player.sessionId = sessionId;
+            }
+        });
+
+        // Reconnect after page refresh
+        socket.on('rejoin_game', ({ sessionId, roomCode, playerName }) => {
+            const room = roomCode?.toUpperCase();
+            const game = games.get(room);
+
+            if (!game) {
+                socket.emit('error', { message: 'Room not found. Game may have ended.' });
+                return;
+            }
+
+            const player = game.players.find(p => p.sessionId === sessionId);
+            if (!player) {
+                socket.emit('error', { message: 'Session not found. Please rejoin.' });
+                return;
+            }
+
+            // Clear disconnect timer if pending
+            if (game.disconnectTimers[sessionId]) {
+                clearTimeout(game.disconnectTimers[sessionId]);
+                delete game.disconnectTimers[sessionId];
+            }
+
+            // Swap socket ID and mark as connected
+            const oldId = player.id;
+            player.id = socket.id;
+            player.disconnected = false;
+            socket.join(room);
+
+            console.log(`Player ${player.name} rejoined ${room} (${oldId} -> ${socket.id})`);
+
+            // Send appropriate state based on game phase
+            if (game.state === 'LOBBY') {
+                socket.emit('joined_room', {
+                    roomCode: room,
+                    players: game.players.filter(p => !p.disconnected),
+                    selectedRoles: game.selectedRoles
+                });
+                io.to(room).emit('update_players', game.players.filter(p => !p.disconnected));
+            } else if (game.state === 'NIGHT') {
+                socket.emit('game_started', {
+                    role: player.originalRole,
+                    players: game.players.filter(p => !p.disconnected).map(p => ({ id: p.id, name: p.name })),
+                    centerCardsCount: game.centerRoles.length,
+                    roomCode: room
+                });
+            } else if (game.state === 'DAY') {
+                socket.emit('game_started', {
+                    role: player.originalRole,
+                    players: game.players.filter(p => !p.disconnected).map(p => ({ id: p.id, name: p.name })),
+                    centerCardsCount: game.centerRoles.length,
+                    roomCode: room
+                });
+                socket.emit('phase_change', {
+                    phase: 'DAY',
+                    players: game.players.filter(p => !p.disconnected).map(p => ({ id: p.id, name: p.name }))
+                });
+            }
         });
 
         socket.on('disconnect', () => {
             console.log('Client disconnected:', socket.id);
 
-            // Find which game the player was in
             for (const [code, game] of games.entries()) {
-                const playerIndex = game.players.findIndex(p => p.id === socket.id);
-                if (playerIndex !== -1) {
-                    const wasHost = game.players[playerIndex].isHost;
-                    game.players.splice(playerIndex, 1);
+                const player = game.players.find(p => p.id === socket.id);
+                if (player) {
+                    // If player has a sessionId, give them a grace period to reconnect
+                    if (player.sessionId) {
+                        player.disconnected = true;
+                        console.log(`Player ${player.name} disconnected from ${code}, waiting for reconnect...`);
 
-                    if (game.players.length === 0) {
-                        games.delete(code);
-                        console.log(`Game ${code} deleted (empty)`);
+                        game.disconnectTimers[player.sessionId] = setTimeout(() => {
+                            // Grace period expired, remove player
+                            const idx = game.players.findIndex(p => p.sessionId === player.sessionId);
+                            if (idx !== -1 && game.players[idx].disconnected) {
+                                const wasHost = game.players[idx].isHost;
+                                game.players.splice(idx, 1);
+                                delete game.disconnectTimers[player.sessionId];
+
+                                if (game.players.length === 0) {
+                                    games.delete(code);
+                                    console.log(`Game ${code} deleted (empty)`);
+                                } else {
+                                    if (wasHost) {
+                                        const connected = game.players.find(p => !p.disconnected);
+                                        if (connected) connected.isHost = true;
+                                    }
+                                    io.to(code).emit('update_players', game.players.filter(p => !p.disconnected));
+                                }
+                            }
+                        }, 30000); // 30 second grace period
                     } else {
-                        if (wasHost) {
-                            game.players[0].isHost = true;
+                        // No session, remove immediately (old behavior)
+                        const playerIndex = game.players.indexOf(player);
+                        const wasHost = player.isHost;
+                        game.players.splice(playerIndex, 1);
+
+                        if (game.players.length === 0) {
+                            games.delete(code);
+                            console.log(`Game ${code} deleted (empty)`);
+                        } else {
+                            if (wasHost) {
+                                game.players[0].isHost = true;
+                            }
+                            io.to(code).emit('update_players', game.players.filter(p => !p.disconnected));
                         }
-                        io.to(code).emit('update_players', game.players);
                     }
-                    break; // Player can only be in one game
+                    break;
                 }
             }
         });
