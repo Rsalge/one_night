@@ -37,17 +37,31 @@ export interface RoleDefinition {
   emoji: string;
 }
 
+// ==================== AUTH TYPES ====================
+
+export interface User {
+  id: number;
+  username: string;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  token?: string;
+  user?: User;
+  error?: string;
+}
+
 // ==================== PLAYER TYPES ====================
 // Matches One Night backend's Player model
 
 export interface Player {
   id: string;           // Socket ID
-  name: string;         // Player display name (max 15 chars)
+  name: string;         // Player display name (max 20 chars)
   isHost: boolean;
   role?: string | null;
   originalRole?: string | null;
   disconnected?: boolean;
-  sessionId?: string | null;
+  userId?: number | null;
 }
 
 // ==================== GAME STATE TYPES ====================
@@ -105,7 +119,7 @@ export interface VoteResults {
   }>;
   centerCards: string[];
   nightLog: Array<{ role: string; description: string }>;
-  playerResults: Array<{ id: string; didWin: boolean }>;
+  playerResults: Array<{ id: string; odid?: number; didWin: boolean }>;
 }
 
 // ==================== SOCKET EVENT TYPES ====================
@@ -117,6 +131,18 @@ export interface ServerToClientEvents {
   joined_room: (data: { roomCode: string; players: Player[]; selectedRoles: string[] }) => void;
   update_players: (players: Player[]) => void;
   roles_updated: (data: { selectedRoles: string[] }) => void;
+  
+  // Reconnection
+  rejoined_game: (data: {
+    roomCode: string;
+    players: Player[] | Array<{ id: string; name: string }>;
+    selectedRoles: string[];
+    state: GameState;
+    myRole?: string;
+    centerCardsCount?: number;
+    isHost: boolean;
+  }) => void;
+  no_active_game: () => void;
   
   // Game start
   game_started: (data: {
@@ -143,13 +169,13 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  // Room management
-  create_game: (data: { name: string }) => void;
-  join_game: (data: { name: string; roomCode: string }) => void;
+  // Room management (no name parameter - uses authenticated username)
+  create_game: () => void;
+  join_game: (data: { roomCode: string }) => void;
+  leave_game: () => void;
   
-  // Session management
-  set_session: (data: { sessionId: string; roomCode: string }) => void;
-  rejoin_game: (data: { sessionId: string; roomCode: string; playerName: string }) => void;
+  // Reconnection
+  reconnect_to_game: () => void;
   
   // Game control
   start_game: (data: { roomCode: string }) => void;
@@ -164,6 +190,16 @@ export interface ClientToServerEvents {
   
   // Restart
   restart_game: (data: { roomCode: string }) => void;
+}
+
+// Auth socket events (separate namespace)
+export interface AuthServerToClientEvents {
+  // None needed - using callbacks
+}
+
+export interface AuthClientToServerEvents {
+  register: (data: { username: string; password: string }, callback: (response: AuthResponse) => void) => void;
+  login: (data: { username: string; password: string }, callback: (response: AuthResponse) => void) => void;
 }
 
 // ==================== HELPER TYPES ====================
@@ -197,17 +233,48 @@ export interface GameResult {
   }>;
   centerCards: string[];
   nightLog: Array<{ role: string; description: string }>;
-  playerResults: Array<{ id: string; didWin: boolean }>;
+  playerResults: Array<{ id: string; odid?: number; didWin: boolean }>;
   myResult?: { didWin: boolean };
 }
 
 // ==================== STATS TYPES ====================
 
-export interface PlayerStats {
+export interface TeamStats {
   gamesPlayed: number;
-  teamStats: Record<Team, { wins: number; losses: number }>;
-  roleStats: Record<string, { wins: number; losses: number; gamesPlayed: number }>;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface RoleStats {
+  role: string;
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface PlayerStats {
+  userId: number;
+  username: string;
+  gamesPlayed: number;
+  totalWins: number;
+  totalLosses: number;
+  winRate: number;
+  currentStreak: number;
+  bestWinStreak: number;
+  firstGameAt: string | null;
+  lastPlayedAt: string | null;
+  memberSince: string;
+  teamStats: Record<string, TeamStats>;
+  roleStats: RoleStats[];
   killCount: number;
   survivalCount: number;
+  survivalRate: number;
   correctVotes: number;
+  votingAccuracy: number;
+  avgGameDuration: number | null;
+  bestRole: { role: string; winRate: number } | null;
+  worstRole: { role: string; winRate: number } | null;
+  mostPlayedRole: { role: string; gamesPlayed: number } | null;
 }

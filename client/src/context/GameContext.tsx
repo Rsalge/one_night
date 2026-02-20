@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { useSocket } from '../hooks/useSocket';
+import { useSocket, useAuthSocket } from '../hooks/useSocket';
 import type {
   Player,
   GamePhase,
@@ -8,31 +8,22 @@ import type {
   GameResult,
   NightActionPrompt,
   NightActionOption,
+  AuthResponse,
 } from '../types';
 
-// Generate a unique session ID for reconnection
-function generateSessionId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
-
-// Helper to get/create session ID
-function getSessionId(): string {
-  let sessionId = sessionStorage.getItem('onw_sessionId');
-  if (!sessionId) {
-    sessionId = generateSessionId();
-    sessionStorage.setItem('onw_sessionId', sessionId);
-  }
-  return sessionId;
-}
-
 interface GameContextValue {
+  // Auth
+  isAuthenticated: boolean;
+  username: string | null;
+  userId: number | null;
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  authConnected: boolean;
+
   // Connection
   isConnected: boolean;
   socketId: string | null;
-
-  // Player
-  playerName: string | null;
-  setPlayerName: (name: string) => void;
 
   // Room
   roomCode: string | null;
@@ -55,8 +46,8 @@ interface GameContextValue {
   hasVoted: boolean;
 
   // Actions
-  createGame: (name: string) => void;
-  joinGame: (name: string, code: string) => void;
+  createGame: () => void;
+  joinGame: (code: string) => void;
   startGame: () => void;
   selectRoles: (roles: string[]) => void;
   submitNightAction: (targetIds: (string | number)[]) => void;
@@ -71,20 +62,22 @@ const GameContext = createContext<GameContextValue | null>(null);
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const { isConnected, emit, on, getSocketId } = useSocket();
+  const { socket: authSocket, isConnected: authConnected } = useAuthSocket();
 
-  // Player state
-  const [playerName, setPlayerNameState] = useState<string | null>(() =>
-    sessionStorage.getItem('onw_playerName')
-  );
-  const [socketId, setSocketId] = useState<string | null>(null);
+  // Auth state
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'));
+  const [username, setUsername] = useState<string | null>(() => localStorage.getItem('username'));
+  const [userId, setUserId] = useState<number | null>(() => {
+    const stored = localStorage.getItem('userId');
+    return stored ? parseInt(stored, 10) : null;
+  });
 
   // Room state
-  const [roomCode, setRoomCode] = useState<string | null>(() =>
-    sessionStorage.getItem('onw_roomCode')
-  );
+  const [roomCode, setRoomCode] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [socketId, setSocketId] = useState<string | null>(null);
 
   // Game state
   const [phase, setPhase] = useState<GamePhase>('lobby');
@@ -108,10 +101,62 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [isConnected, getSocketId]);
 
-  // Set player name and persist
-  const setPlayerName = useCallback((name: string) => {
-    setPlayerNameState(name);
-    sessionStorage.setItem('onw_playerName', name);
+  // Auth methods
+  const login = useCallback(async (loginUsername: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!authSocket) return { success: false, error: 'Not connected' };
+
+    return new Promise((resolve) => {
+      authSocket.emit('login', { username: loginUsername, password }, (response: AuthResponse) => {
+        if (response.success && response.token && response.user) {
+          localStorage.setItem('token', response.token);
+          localStorage.setItem('username', response.user.username);
+          localStorage.setItem('userId', response.user.id.toString());
+          setUsername(response.user.username);
+          setUserId(response.user.id);
+          setIsAuthenticated(true);
+          // Trigger page reload to reconnect socket with new token
+          window.location.reload();
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: response.error });
+        }
+      });
+    });
+  }, [authSocket]);
+
+  const register = useCallback(async (registerUsername: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!authSocket) return { success: false, error: 'Not connected' };
+
+    return new Promise((resolve) => {
+      authSocket.emit('register', { username: registerUsername, password }, (response: AuthResponse) => {
+        if (response.success && response.token && response.user) {
+          localStorage.setItem('token', response.token);
+          localStorage.setItem('username', response.user.username);
+          localStorage.setItem('userId', response.user.id.toString());
+          setUsername(response.user.username);
+          setUserId(response.user.id);
+          setIsAuthenticated(true);
+          // Trigger page reload to reconnect socket with new token
+          window.location.reload();
+          resolve({ success: true });
+        } else {
+          resolve({ success: false, error: response.error });
+        }
+      });
+    });
+  }, [authSocket]);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    localStorage.removeItem('userId');
+    setUsername(null);
+    setUserId(null);
+    setIsAuthenticated(false);
+    setRoomCode(null);
+    setPlayers([]);
+    setPhase('lobby');
+    window.location.reload();
   }, []);
 
   // Build night action prompt from night turn
@@ -119,7 +164,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (!turn.isInteractive || !turn.activeRole) return null;
 
     const role = turn.activeRole;
-    let prompt = turn.flavor;
+    const prompt = turn.flavor;
     const options: NightActionOption[] = [];
     let canSelectMultiple = false;
     let maxSelections = 1;
@@ -140,18 +185,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
         options.push({ type: 'center', id: 1, label: 'Center Card 2' });
         options.push({ type: 'center', id: 2, label: 'Center Card 3' });
         canSelectMultiple = true;
-        maxSelections = 2; // Either 1 player or 2 center cards
+        maxSelections = 2;
         break;
 
       case 'Apprentice Seer':
-        // Can view 1 center card
         options.push({ type: 'center', id: 0, label: 'Center Card 1' });
         options.push({ type: 'center', id: 1, label: 'Center Card 2' });
         options.push({ type: 'center', id: 2, label: 'Center Card 3' });
         break;
 
       case 'Werewolf':
-        // Lone wolf: view 1 center card
         options.push({ type: 'center', id: 0, label: 'Center Card 1' });
         options.push({ type: 'center', id: 1, label: 'Center Card 2' });
         options.push({ type: 'center', id: 2, label: 'Center Card 3' });
@@ -162,7 +205,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
       case 'Sentinel':
       case 'Alpha Wolf':
       case 'Revealer':
-        // Target 1 other player
         gamePlayers.forEach(p => {
           if (p.id !== myId) {
             options.push({ type: 'player', id: p.id, label: p.name });
@@ -171,7 +213,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
         break;
 
       case 'Troublemaker':
-        // Target 2 other players
         gamePlayers.forEach(p => {
           if (p.id !== myId) {
             options.push({ type: 'player', id: p.id, label: p.name });
@@ -182,7 +223,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
         break;
 
       case 'Paranormal Investigator':
-        // View up to 2 players
         gamePlayers.forEach(p => {
           if (p.id !== myId) {
             options.push({ type: 'player', id: p.id, label: p.name });
@@ -193,15 +233,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         break;
 
       case 'Drunk':
-        // Swap with 1 center card
         options.push({ type: 'center', id: 0, label: 'Center Card 1' });
         options.push({ type: 'center', id: 1, label: 'Center Card 2' });
         options.push({ type: 'center', id: 2, label: 'Center Card 3' });
         break;
 
       case 'Witch':
-        // View 1 center card, optionally swap with player
-        // This is complex - first select center, then optionally player
         options.push({ type: 'center', id: 0, label: 'Center Card 1' });
         options.push({ type: 'center', id: 1, label: 'Center Card 2' });
         options.push({ type: 'center', id: 2, label: 'Center Card 3' });
@@ -209,11 +246,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
           options.push({ type: 'player', id: p.id, label: `Swap to ${p.name}` });
         });
         canSelectMultiple = true;
-        maxSelections = 2; // 1 center + optionally 1 player
+        maxSelections = 2;
         break;
 
       default:
-        // Generic: target any other player
         gamePlayers.forEach(p => {
           if (p.id !== myId) {
             options.push({ type: 'player', id: p.id, label: p.name });
@@ -226,37 +262,58 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   // Socket event handlers
   useEffect(() => {
+    if (!isConnected) return;
+
     // Game created (host)
     const unsubGameCreated = on('game_created', (data) => {
       setRoomCode(data.roomCode);
-      sessionStorage.setItem('onw_roomCode', data.roomCode);
       setPlayers(data.players);
       setSelectedRoles(data.selectedRoles);
       setIsHost(true);
       setPhase('lobby');
-
-      // Set session for reconnection
-      const sessionId = getSessionId();
-      emit('set_session', { sessionId, roomCode: data.roomCode });
     });
 
     // Joined room (non-host)
     const unsubJoinedRoom = on('joined_room', (data) => {
       setRoomCode(data.roomCode);
-      sessionStorage.setItem('onw_roomCode', data.roomCode);
       setPlayers(data.players);
       setSelectedRoles(data.selectedRoles);
       setPhase('lobby');
+    });
 
-      // Set session for reconnection
-      const sessionId = getSessionId();
-      emit('set_session', { sessionId, roomCode: data.roomCode });
+    // Rejoined game (reconnection)
+    const unsubRejoinedGame = on('rejoined_game', (data) => {
+      setRoomCode(data.roomCode);
+      setPlayers(data.players as Player[]);
+      setSelectedRoles(data.selectedRoles);
+      setIsHost(data.isHost);
+
+      if (data.state === 'LOBBY') {
+        setPhase('lobby');
+      } else if (data.state === 'NIGHT') {
+        setPhase('night');
+        if (data.myRole) {
+          setMyRole(data.myRole);
+          setOriginalRole(data.myRole);
+        }
+      } else if (data.state === 'DAY') {
+        setPhase('day');
+        if (data.myRole) {
+          setMyRole(data.myRole);
+          setOriginalRole(data.myRole);
+        }
+      }
+    });
+
+    // No active game found
+    const unsubNoActiveGame = on('no_active_game', () => {
+      // User has no active game to reconnect to
+      setRoomCode(null);
     });
 
     // Players updated
     const unsubUpdatePlayers = on('update_players', (newPlayers) => {
       setPlayers(newPlayers);
-      // Check if we're now host
       const myId = getSocketId();
       const me = newPlayers.find(p => p.id === myId);
       if (me) {
@@ -288,7 +345,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setPhase('night');
       setActionResult(null);
 
-      // Build action prompt if it's our turn
       if (turn.isInteractive && turn.activePlayerIds.includes(getSocketId() ?? '')) {
         const prompt = buildNightActionPrompt(turn, players);
         setNightAction(prompt);
@@ -356,15 +412,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
     // Error
     const unsubError = on('error', (data) => {
       setError(data.message);
-      // If error mentions session, clear stored data
-      if (data.message.toLowerCase().includes('session')) {
-        sessionStorage.removeItem('onw_roomCode');
-      }
     });
 
     return () => {
       unsubGameCreated();
       unsubJoinedRoom();
+      unsubRejoinedGame();
+      unsubNoActiveGame();
       unsubUpdatePlayers();
       unsubRolesUpdated();
       unsubGameStarted();
@@ -376,28 +430,23 @@ export function GameProvider({ children }: { children: ReactNode }) {
       unsubReturnToLobby();
       unsubError();
     };
-  }, [on, emit, getSocketId, players, buildNightActionPrompt]);
+  }, [on, getSocketId, players, buildNightActionPrompt, isConnected]);
 
-  // Attempt to rejoin on connect if we have stored session
+  // Try to reconnect to active game on connect
   useEffect(() => {
-    if (isConnected && roomCode && playerName) {
-      const sessionId = sessionStorage.getItem('onw_sessionId');
-      if (sessionId) {
-        emit('rejoin_game', { sessionId, roomCode, playerName });
-      }
+    if (isConnected && isAuthenticated) {
+      emit('reconnect_to_game');
     }
-  }, [isConnected, roomCode, playerName, emit]);
+  }, [isConnected, isAuthenticated, emit]);
 
   // Actions
-  const createGame = useCallback((name: string) => {
-    setPlayerName(name);
-    emit('create_game', { name });
-  }, [emit, setPlayerName]);
+  const createGame = useCallback(() => {
+    emit('create_game');
+  }, [emit]);
 
-  const joinGame = useCallback((name: string, code: string) => {
-    setPlayerName(name);
-    emit('join_game', { name, roomCode: code.toUpperCase() });
-  }, [emit, setPlayerName]);
+  const joinGame = useCallback((code: string) => {
+    emit('join_game', { roomCode: code.toUpperCase() });
+  }, [emit]);
 
   const startGame = useCallback(() => {
     if (roomCode) {
@@ -447,9 +496,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const leaveGame = useCallback(() => {
-    sessionStorage.removeItem('onw_roomCode');
-    sessionStorage.removeItem('onw_sessionId');
-    sessionStorage.removeItem('onw_playerName');
+    emit('leave_game');
     setRoomCode(null);
     setPlayers([]);
     setIsHost(false);
@@ -461,18 +508,29 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setNightAction(null);
     setActionResult(null);
     setGameResult(null);
-    setPlayerNameState(null);
-  }, []);
+  }, [emit]);
 
   const value: GameContextValue = {
+    // Auth
+    isAuthenticated,
+    username,
+    userId,
+    login,
+    register,
+    logout,
+    authConnected,
+
+    // Connection
     isConnected,
     socketId,
-    playerName,
-    setPlayerName,
+
+    // Room
     roomCode,
     players,
     isHost,
     selectedRoles,
+
+    // Game state
     phase,
     myRole,
     originalRole,
@@ -483,6 +541,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     error,
     voteCount,
     hasVoted,
+
+    // Actions
     createGame,
     joinGame,
     startGame,

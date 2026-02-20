@@ -4,16 +4,16 @@ const prisma = require('../lib/db');
  * Encapsulates all game state manipulation logic using Prisma.
  */
 
-async function createGame(roomCode, playerName, socketId) {
-    const ALL_ROLES = [
-        'Werewolf', 'Werewolf', 'Seer', 'Robber', 'Troublemaker',
-        'Villager', 'Villager', 'Villager', 'Mason', 'Mason',
-        'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner',
-        'Alpha Wolf', 'Mystic Wolf', 'Dream Wolf',
-        'Apprentice Seer', 'Paranormal Investigator',
-        'Witch', 'Sentinel', 'Revealer'
-    ];
+const ALL_ROLES = [
+    'Werewolf', 'Werewolf', 'Seer', 'Robber', 'Troublemaker',
+    'Villager', 'Villager', 'Villager', 'Mason', 'Mason',
+    'Minion', 'Drunk', 'Insomniac', 'Hunter', 'Tanner',
+    'Alpha Wolf', 'Mystic Wolf', 'Dream Wolf',
+    'Apprentice Seer', 'Paranormal Investigator',
+    'Witch', 'Sentinel', 'Revealer'
+];
 
+async function createGame(roomCode, userId, username, socketId) {
     // Clean up any orphaned player with this socket ID before creating
     await prisma.player.deleteMany({
         where: { id: socketId }
@@ -27,7 +27,8 @@ async function createGame(roomCode, playerName, socketId) {
             players: {
                 create: {
                     id: socketId,
-                    name: playerName.substring(0, 15),
+                    userId: userId,
+                    name: username.substring(0, 20),
                     isHost: true,
                 }
             }
@@ -44,7 +45,7 @@ async function getGame(roomCode) {
     });
 }
 
-async function joinGame(roomCode, playerName, socketId) {
+async function joinGame(roomCode, userId, username, socketId) {
     return prisma.$transaction(async (tx) => {
         const game = await tx.game.findUnique({
             where: { roomCode: roomCode.toUpperCase() },
@@ -54,15 +55,22 @@ async function joinGame(roomCode, playerName, socketId) {
         if (!game) throw new Error('Room not found');
         if (game.state !== 'LOBBY') throw new Error('Game already started');
 
+        // Check if user is already in this game
+        const existingPlayer = game.players.find(p => p.userId === userId);
+        if (existingPlayer) {
+            throw new Error('You are already in this game');
+        }
+
         // Clean up any orphaned player with this socket ID before joining
         await tx.player.deleteMany({
             where: { id: socketId }
         });
 
-        const newPlayer = await tx.player.create({
+        await tx.player.create({
             data: {
                 id: socketId,
-                name: playerName.substring(0, 15),
+                userId: userId,
+                name: username.substring(0, 20),
                 isHost: false,
                 gameId: game.roomCode
             }
@@ -76,35 +84,43 @@ async function joinGame(roomCode, playerName, socketId) {
     });
 }
 
-async function setSession(socketId, sessionId, roomCode) {
-    return prisma.player.updateMany({
-        where: { id: socketId, gameId: roomCode.toUpperCase() },
-        data: { sessionId }
-    });
-}
-
-async function getPlayerBySession(sessionId) {
-    return prisma.player.findFirst({
-        where: { sessionId },
+async function getPlayerBySocketId(socketId) {
+    return prisma.player.findUnique({
+        where: { id: socketId },
         include: { game: { include: { players: true } } }
     });
 }
 
-async function rejoinGame(sessionId, socketId) {
+async function rejoinGameByUserId(userId, socketId) {
     return prisma.$transaction(async (tx) => {
+        // Find player by userId who is in an active game
         const player = await tx.player.findFirst({
-            where: { sessionId },
+            where: {
+                userId: userId,
+                game: {
+                    state: { not: 'RESULTS' }
+                }
+            },
             include: { game: true }
         });
 
         if (!player || !player.game) {
-            throw new Error('Session or room not found');
+            throw new Error('No active game found');
         }
 
+        // Clean up any orphaned player with this socket ID
+        await tx.player.deleteMany({
+            where: {
+                id: socketId,
+                NOT: { id: player.id }
+            }
+        });
+
+        // Update player's socket ID and mark as connected
         const updatedPlayer = await tx.player.update({
             where: { id: player.id },
             data: {
-                id: socketId, // Update their socket id to the new one
+                id: socketId,
                 disconnected: false
             }
         });
@@ -170,7 +186,6 @@ async function removePlayer(socketId) {
 }
 
 async function startGame(roomCode, rolesToUse) {
-    // Return updated game with roles assigned
     return prisma.$transaction(async (tx) => {
         const game = await tx.game.findUnique({
             where: { roomCode },
@@ -196,7 +211,7 @@ async function startGame(roomCode, rolesToUse) {
             })
         ));
 
-        // Update game state
+        // Update game state with startedAt timestamp
         return tx.game.update({
             where: { roomCode },
             data: {
@@ -207,7 +222,8 @@ async function startGame(roomCode, rolesToUse) {
                 shielded: [],
                 revealed: [],
                 votes: {},
-                pendingAcks: []
+                pendingAcks: [],
+                startedAt: new Date()
             },
             include: { players: true }
         });
@@ -233,9 +249,8 @@ module.exports = {
     createGame,
     getGame,
     joinGame,
-    setSession,
-    getPlayerBySession,
-    rejoinGame,
+    getPlayerBySocketId,
+    rejoinGameByUserId,
     updatePlayerDisconnectStatus,
     removePlayer,
     startGame,

@@ -2,25 +2,32 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
 
-type Mode = 'menu' | 'create' | 'join';
+type Mode = 'menu' | 'login' | 'register' | 'create' | 'join';
 
 export function Home() {
   const navigate = useNavigate();
-  const { 
-    isConnected, 
-    playerName, 
-    roomCode, 
+  const {
+    isConnected,
+    isAuthenticated,
+    username,
+    roomCode,
     phase,
-    createGame, 
+    createGame,
     joinGame,
+    login,
+    register,
+    logout,
     error,
     clearError,
+    authConnected,
   } = useGame();
 
-  const [mode, setMode] = useState<Mode>('menu');
-  const [formName, setFormName] = useState(playerName ?? '');
+  const [mode, setMode] = useState<Mode>(() => isAuthenticated ? 'menu' : 'login');
+  const [formUsername, setFormUsername] = useState('');
+  const [formPassword, setFormPassword] = useState('');
   const [formRoomCode, setFormRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   // If we're already in a room, navigate there
   useEffect(() => {
@@ -31,24 +38,71 @@ export function Home() {
     }
   }, [roomCode, phase, navigate]);
 
+  // Update mode when auth state changes
+  useEffect(() => {
+    if (isAuthenticated && (mode === 'login' || mode === 'register')) {
+      setMode('menu');
+    }
+  }, [isAuthenticated, mode]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+
+    if (formUsername.length < 2 || formUsername.length > 20) {
+      setAuthError('Username must be 2-20 characters');
+      return;
+    }
+    if (formPassword.length < 8) {
+      setAuthError('Password must be at least 8 characters');
+      return;
+    }
+
+    setLoading(true);
+    const result = await login(formUsername, formPassword);
+    setLoading(false);
+
+    if (!result.success) {
+      setAuthError(result.error || 'Login failed');
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+
+    if (formUsername.length < 2 || formUsername.length > 20) {
+      setAuthError('Username must be 2-20 characters');
+      return;
+    }
+    if (formPassword.length < 8) {
+      setAuthError('Password must be at least 8 characters');
+      return;
+    }
+
+    setLoading(true);
+    const result = await register(formUsername, formPassword);
+    setLoading(false);
+
+    if (!result.success) {
+      setAuthError(result.error || 'Registration failed');
+    }
+  };
+
   const handleCreateGame = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim()) return;
-    
     setLoading(true);
     clearError();
-    createGame(formName.trim());
-    // Navigation handled by useEffect when roomCode is set
+    createGame();
   };
 
   const handleJoinGame = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || formRoomCode.length !== 4) return;
-    
+    if (formRoomCode.length !== 4) return;
+
     setLoading(true);
     clearError();
-    joinGame(formName.trim(), formRoomCode.toUpperCase());
-    // Navigation handled by useEffect when roomCode is set
+    joinGame(formRoomCode.toUpperCase());
   };
 
   // Reset loading when error occurs
@@ -74,17 +128,40 @@ export function Home() {
 
         {/* Connection status */}
         <div className="flex items-center justify-center gap-2 mb-4 sm:mb-6">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
+          <div className={`w-2 h-2 rounded-full ${
+            isAuthenticated && isConnected 
+              ? 'bg-green-500' 
+              : authConnected 
+                ? 'bg-yellow-500' 
+                : 'bg-red-500 animate-pulse'
+          }`} />
           <span className="text-sm text-gray-400">
-            {isConnected ? 'Connected' : 'Connecting...'}
+            {isAuthenticated && isConnected 
+              ? `Connected as ${username}` 
+              : authConnected 
+                ? 'Ready to login' 
+                : 'Connecting...'}
           </span>
         </div>
 
-        {/* Error message */}
+        {/* Auth error message */}
+        {authError && (
+          <div className="mb-4 p-3 rounded-xl bg-red-900/50 border border-red-500 text-red-200 text-sm">
+            {authError}
+            <button
+              onClick={() => setAuthError('')}
+              className="ml-2 text-red-400 hover:text-white"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
+        {/* Game error message */}
         {error && (
           <div className="mb-4 p-3 rounded-xl bg-red-900/50 border border-red-500 text-red-200 text-sm">
             {error}
-            <button 
+            <button
               onClick={clearError}
               className="ml-2 text-red-400 hover:text-white"
             >
@@ -93,8 +170,102 @@ export function Home() {
           </div>
         )}
 
-        {/* Main menu */}
-        {mode === 'menu' && (
+        {/* Login form */}
+        {mode === 'login' && (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Username</label>
+              <input
+                type="text"
+                placeholder="Enter your username"
+                value={formUsername}
+                onChange={(e) => setFormUsername(e.target.value.slice(0, 20))}
+                className="input"
+                maxLength={20}
+                autoFocus
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Password</label>
+              <input
+                type="password"
+                placeholder="Enter your password"
+                value={formPassword}
+                onChange={(e) => setFormPassword(e.target.value)}
+                className="input"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading || !authConnected}
+              className="btn-primary w-full disabled:opacity-50"
+            >
+              {loading ? 'Logging in...' : 'Login'}
+            </button>
+            <p className="text-center text-gray-400 text-sm">
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={() => { setMode('register'); setAuthError(''); }}
+                className="text-amber-400 hover:text-amber-300"
+              >
+                Register
+              </button>
+            </p>
+          </form>
+        )}
+
+        {/* Register form */}
+        {mode === 'register' && (
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Username</label>
+              <input
+                type="text"
+                placeholder="Choose a username (2-20 chars)"
+                value={formUsername}
+                onChange={(e) => setFormUsername(e.target.value.slice(0, 20))}
+                className="input"
+                maxLength={20}
+                autoFocus
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-400 mb-1 block">Password</label>
+              <input
+                type="password"
+                placeholder="Choose a password (8+ chars)"
+                value={formPassword}
+                onChange={(e) => setFormPassword(e.target.value)}
+                className="input"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading || !authConnected}
+              className="btn-primary w-full disabled:opacity-50"
+            >
+              {loading ? 'Creating account...' : 'Create Account'}
+            </button>
+            <p className="text-center text-gray-400 text-sm">
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => { setMode('login'); setAuthError(''); }}
+                className="text-amber-400 hover:text-amber-300"
+              >
+                Login
+              </button>
+            </p>
+          </form>
+        )}
+
+        {/* Main menu (authenticated) */}
+        {mode === 'menu' && isAuthenticated && (
           <div className="space-y-3 sm:space-y-4">
             <button
               onClick={() => setMode('create')}
@@ -111,27 +282,29 @@ export function Home() {
             >
               🚪 Join Game
             </button>
+
+            <button
+              onClick={() => navigate('/profile')}
+              className="w-full px-4 py-3 rounded-xl text-gray-300 hover:bg-white/10 transition-colors"
+            >
+              📊 My Profile
+            </button>
+
+            <button
+              onClick={logout}
+              className="w-full px-4 py-3 rounded-xl text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors text-sm"
+            >
+              Logout
+            </button>
           </div>
         )}
 
-        {/* Create game form */}
+        {/* Create game confirmation */}
         {mode === 'create' && (
           <form onSubmit={handleCreateGame} className="space-y-4">
-            <div>
-              <label className="text-sm text-gray-400 mb-1 block">Your Name</label>
-              <input
-                type="text"
-                placeholder="Enter your name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value.slice(0, 15))}
-                className="input"
-                maxLength={15}
-                autoFocus
-                autoCapitalize="words"
-                autoCorrect="off"
-              />
-              <p className="text-xs text-gray-500 mt-1">{formName.length}/15 characters</p>
-            </div>
+            <p className="text-center text-gray-300">
+              Create a new game as <span className="text-amber-400 font-semibold">{username}</span>?
+            </p>
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
@@ -142,7 +315,7 @@ export function Home() {
               </button>
               <button
                 type="submit"
-                disabled={loading || !formName.trim() || !isConnected}
+                disabled={loading || !isConnected}
                 className="flex-1 btn-primary disabled:opacity-50"
               >
                 {loading ? 'Creating...' : 'Create'}
@@ -154,20 +327,9 @@ export function Home() {
         {/* Join game form */}
         {mode === 'join' && (
           <form onSubmit={handleJoinGame} className="space-y-4">
-            <div>
-              <label className="text-sm text-gray-400 mb-1 block">Your Name</label>
-              <input
-                type="text"
-                placeholder="Enter your name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value.slice(0, 15))}
-                className="input"
-                maxLength={15}
-                autoFocus
-                autoCapitalize="words"
-                autoCorrect="off"
-              />
-            </div>
+            <p className="text-center text-gray-300 text-sm">
+              Joining as <span className="text-amber-400 font-semibold">{username}</span>
+            </p>
             <div>
               <label className="text-sm text-gray-400 mb-1 block text-center">Room Code</label>
               <input
@@ -179,6 +341,7 @@ export function Home() {
                 maxLength={4}
                 autoCapitalize="characters"
                 autoCorrect="off"
+                autoFocus
               />
             </div>
             <div className="flex gap-2 pt-2">
@@ -191,7 +354,7 @@ export function Home() {
               </button>
               <button
                 type="submit"
-                disabled={loading || !formName.trim() || formRoomCode.length !== 4 || !isConnected}
+                disabled={loading || formRoomCode.length !== 4 || !isConnected}
                 className="flex-1 btn-primary disabled:opacity-50"
               >
                 {loading ? 'Joining...' : 'Join'}
