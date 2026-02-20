@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node server.js",
     "dev:client": "cd client && npm run dev",
-    "build": "npx prisma generate && cd client && npm install && npm run build",
+    "build": "npx prisma generate && cd client && npm install --include=dev && npm run build",
     "start": "node server.js",
     "test": "jest --verbose",
     "prisma:migrate": "prisma migrate dev",
