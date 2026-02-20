@@ -19,6 +19,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "dotenv": "^17.3.1",
     "jest": "^30.2.0",
     "prisma": "^7.4.1"
   }
