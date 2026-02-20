@@ -1,25 +1,25 @@
 {
   "name": "one_night",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "node server.js",
-    "build": "npx prisma generate && next build",
+    "dev:client": "cd client && npm run dev",
+    "build": "npx prisma generate && cd client && npm run build",
     "start": "node server.js",
-    "test": "jest --verbose"
+    "test": "jest --verbose",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.1",
     "@prisma/client": "^7.4.1",
     "express": "^5.2.1",
-    "next": "16.1.6",
     "pg": "^8.18.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3"
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "dotenv": "^17.3.1",
     "jest": "^30.2.0",
     "prisma": "^7.4.1"
   }
