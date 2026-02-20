@@ -6,6 +6,29 @@ datasource db {
   provider = "postgresql"
 }
 
+// User accounts for persistent authentication
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  passwordHash  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  players       Player[]
+  gamePlayers   GamePlayer[]
+
+  // Cached stats (denormalized for performance)
+  gamesPlayed   Int      @default(0)
+  totalWins     Int      @default(0)
+  totalLosses   Int      @default(0)
+  currentStreak Int      @default(0) // positive = win streak, negative = loss streak
+  bestWinStreak Int      @default(0)
+  firstGameAt   DateTime?
+  lastPlayedAt  DateTime?
+}
+
+// Active game in progress
 model Game {
   roomCode      String   @id
   state         String   // 'LOBBY', 'NIGHT', 'DAY', 'RESULTS'
@@ -17,14 +40,19 @@ model Game {
   revealed      Json?    // Array of {id, name, role}
   votes         Json?    // Key-value mapping
   pendingAcks   Json?    // Array of player IDs that need to acknowledge
+  startedAt     DateTime? // When game started (left lobby)
+  completedAt   DateTime? // When game ended (results)
   players       Player[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
 
+// Player in an active game
 model Player {
-  id           String   @id // socket.id initially
+  id           String   @id // socket.id
   sessionId    String?
+  userId       Int?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   gameId       String
   game         Game     @relation(fields: [gameId], references: [roomCode], onDelete: Cascade)
   name         String
@@ -34,4 +62,39 @@ model Player {
   disconnected Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// Completed game record for stats
+model CompletedGame {
+  id           Int      @id @default(autoincrement())
+  roomCode     String
+  playedAt     DateTime @default(now())
+  winningTeams Json     // Array of strings: ['villager', 'tanner']
+  gameDuration Int?     // seconds from start to results
+  playerCount  Int
+  gamePlayers  GamePlayer[]
+
+  @@index([playedAt])
+}
+
+// Player stats for a completed game
+model GamePlayer {
+  id             Int           @id @default(autoincrement())
+  userId         Int
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId         Int
+  game           CompletedGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  startingRole   String
+  finalRole      String
+  team           String        // 'villager', 'werewolf', 'tanner'
+  won            Boolean
+  wasKilled      Boolean
+  votedFor       String?       // player name they voted for
+  votedCorrectly Boolean       // voted for werewolf/tanner who died
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+  @@index([gameId])
 }

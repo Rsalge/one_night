@@ -20,32 +20,141 @@ const io = new Server(server, {
 });
 
 const gameStore = require('./src/server/gameStore');
+const auth = require('./src/server/auth');
+const statsCollector = require('./src/server/statsCollector');
+const statsAPI = require('./src/server/statsAPI');
+
+// Track authenticated users by socket
+const socketToUser = new Map(); // socketId -> { userId, username }
+
+// Middleware for JSON parsing
+app.use(express.json());
+
+// CORS for development
+if (dev) {
+    app.use((req, res, next) => {
+        res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        next();
+    });
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// HTTP auth middleware
+function authenticateHTTP(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const token = authHeader.substring(7);
+    const payload = auth.verifyToken(token);
+    if (!payload) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.userId = payload.userId;
+    req.username = payload.username;
+    next();
+}
+
+// Get user's own stats
+app.get('/api/stats', authenticateHTTP, async (req, res) => {
+    try {
+        const stats = await statsAPI.getPlayerStats(req.userId);
+        res.json(stats);
+    } catch (err) {
+        console.error('Stats error:', err);
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+
+// Get any user's stats by ID (public)
+app.get('/api/stats/:userId', async (req, res) => {
+    try {
+        const userId = parseInt(req.params.userId, 10);
+        if (isNaN(userId)) {
+            return res.status(400).json({ error: 'Invalid user ID' });
+        }
+        const stats = await statsAPI.getPlayerStats(userId);
+        res.json(stats);
+    } catch (err) {
+        console.error('Stats error:', err);
+        res.status(404).json({ error: 'User not found' });
+    }
+});
+
 function generateRoomCode() {
     return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
 
-io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+// Auth namespace for unauthenticated connections (login/register)
+const authNamespace = io.of('/auth');
 
-    socket.on('create_game', async ({ name }) => {
+authNamespace.on('connection', (socket) => {
+    console.log('Auth connection:', socket.id);
+
+    socket.on('register', async ({ username, password }, callback) => {
+        try {
+            const result = await auth.register(username, password);
+            callback({ success: true, ...result });
+        } catch (err) {
+            callback({ success: false, error: err.message });
+        }
+    });
+
+    socket.on('login', async ({ username, password }, callback) => {
+        try {
+            const result = await auth.login(username, password);
+            callback({ success: true, ...result });
+        } catch (err) {
+            callback({ success: false, error: err.message });
+        }
+    });
+});
+
+// Main namespace with authentication middleware
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+
+    if (!token) {
+        return next(new Error('Authentication required'));
+    }
+
+    const payload = auth.verifyToken(token);
+    if (!payload) {
+        return next(new Error('Invalid token'));
+    }
+
+    // Store user info on socket
+    socket.userId = payload.userId;
+    socket.username = payload.username;
+    socketToUser.set(socket.id, { userId: payload.userId, username: payload.username });
+
+    next();
+});
+
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id, '- User:', socket.username);
+
+    socket.on('create_game', async () => {
+        const { userId, username } = socketToUser.get(socket.id);
         const maxAttempts = 5;
-        
+
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
                 const roomCode = generateRoomCode();
-                const newGame = await gameStore.createGame(roomCode, name, socket.id);
+                const newGame = await gameStore.createGame(roomCode, userId, username, socket.id);
 
                 socket.join(roomCode);
 
                 socket.emit('game_created', { roomCode, players: newGame.players, selectedRoles: newGame.selectedRoles });
                 io.to(roomCode).emit('update_players', newGame.players.filter(p => !p.disconnected));
-                console.log(`Game created: ${roomCode} by ${name}`);
+                console.log(`Game created: ${roomCode} by ${username}`);
                 return;
             } catch (err) {
                 if (err.code === 'P2002' && attempt < maxAttempts - 1) {
@@ -59,76 +168,65 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('join_game', async ({ name, roomCode }) => {
+    socket.on('join_game', async ({ roomCode }) => {
+        const { userId, username } = socketToUser.get(socket.id);
         try {
             const room = roomCode?.toUpperCase();
-            const game = await gameStore.joinGame(room, name, socket.id);
+            const game = await gameStore.joinGame(room, userId, username, socket.id);
 
             socket.join(room);
 
             io.to(room).emit('update_players', game.players.filter(p => !p.disconnected));
             socket.emit('joined_room', { roomCode: room, players: game.players.filter(p => !p.disconnected), selectedRoles: game.selectedRoles });
-            console.log(`Player ${name} joined ${room}`);
+            console.log(`Player ${username} joined ${room}`);
         } catch (err) {
             console.error("Join game error:", err);
             socket.emit('error', { message: err.message || 'Failed to join game' });
         }
     });
 
-    socket.on('set_session', async ({ sessionId, roomCode }) => {
+    socket.on('reconnect_to_game', async () => {
+        const { userId, username } = socketToUser.get(socket.id);
         try {
-            await gameStore.setSession(socket.id, sessionId, roomCode);
-        } catch (err) {
-            console.error("Set session error:", err);
-        }
-    });
+            const { player, game } = await gameStore.rejoinGameByUserId(userId, socket.id);
 
-    socket.on('rejoin_game', async ({ sessionId, roomCode, playerName }) => {
-        try {
-            const room = roomCode?.toUpperCase();
+            socket.join(game.roomCode);
+            console.log(`Player ${username} reconnected to ${game.roomCode}`);
 
-            const { player, game } = await gameStore.rejoinGame(sessionId, socket.id);
-
-            if (global.disconnectTimers && global.disconnectTimers[sessionId]) {
-                clearTimeout(global.disconnectTimers[sessionId]);
-                delete global.disconnectTimers[sessionId];
-            }
-
-            socket.join(room);
-            console.log(`Player ${player.name} rejoined ${room} (${socket.id})`);
-
+            // Send appropriate state based on game phase
             if (game.state === 'LOBBY') {
-                socket.emit('joined_room', {
-                    roomCode: room,
+                socket.emit('rejoined_game', {
+                    roomCode: game.roomCode,
                     players: game.players.filter(p => !p.disconnected),
-                    selectedRoles: game.selectedRoles
+                    selectedRoles: game.selectedRoles,
+                    state: 'LOBBY',
+                    isHost: player.isHost
                 });
-                io.to(room).emit('update_players', game.players.filter(p => !p.disconnected));
-            } else if (game.state === 'NIGHT' || game.state === 'DAY') {
-                socket.emit('game_started', {
-                    role: player.originalRole,
+            } else {
+                socket.emit('rejoined_game', {
+                    roomCode: game.roomCode,
                     players: game.players.filter(p => !p.disconnected).map(p => ({ id: p.id, name: p.name })),
-                    centerCardsCount: game.centerRoles.length,
-                    roomCode: room
+                    selectedRoles: game.selectedRoles,
+                    state: game.state,
+                    myRole: player.originalRole,
+                    centerCardsCount: game.centerRoles?.length || 0,
+                    isHost: player.isHost
                 });
-
-                if (game.state === 'DAY') {
-                    socket.emit('phase_change', {
-                        phase: 'DAY',
-                        players: game.players.filter(p => !p.disconnected).map(p => ({ id: p.id, name: p.name }))
-                    });
-                }
             }
+
+            io.to(game.roomCode).emit('update_players', game.players.filter(p => !p.disconnected));
         } catch (err) {
-            console.error("Rejoin error:", err);
-            socket.emit('error', { message: 'Session not found or room ended.' });
+            console.error('Reconnect error:', err);
+            socket.emit('no_active_game');
         }
     });
 
     if (!global.disconnectTimers) global.disconnectTimers = {};
 
     socket.on('disconnect', async () => {
-        console.log('Client disconnected:', socket.id);
+        const userInfo = socketToUser.get(socket.id);
+        console.log('Client disconnected:', socket.id, userInfo ? `- User: ${userInfo.username}` : '');
+        socketToUser.delete(socket.id);
 
         try {
             const playerRecord = await gameStore.updatePlayerDisconnectStatus(socket.id, true);
@@ -138,32 +236,25 @@ io.on('connection', (socket) => {
             const game = playerRecord.game;
             const code = game.roomCode;
 
-            if (player.sessionId) {
-                console.log(`Player ${player.name} disconnected from ${code}, waiting for reconnect...`);
+            // Use userId for reconnect timer if available
+            const timerId = player.userId ? `user_${player.userId}` : socket.id;
+            console.log(`Player ${player.name} disconnected from ${code}, waiting for reconnect...`);
 
-                global.disconnectTimers[player.sessionId] = setTimeout(async () => {
-                    try {
-                        const currentStatus = await gameStore.updatePlayerDisconnectStatus(socket.id, true);
-                        if (currentStatus && currentStatus.disconnected) {
-                            const result = await gameStore.removePlayer(socket.id);
-                            delete global.disconnectTimers[player.sessionId];
+            global.disconnectTimers[timerId] = setTimeout(async () => {
+                try {
+                    const currentStatus = await gameStore.getPlayerBySocketId(socket.id);
+                    if (currentStatus && currentStatus.disconnected) {
+                        const result = await gameStore.removePlayer(socket.id);
+                        delete global.disconnectTimers[timerId];
 
-                            if (result && result.deleted) {
-                                console.log(`Game ${code} deleted (empty)`);
-                            } else if (result && result.game) {
-                                io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
-                            }
+                        if (result && result.deleted) {
+                            console.log(`Game ${code} deleted (empty)`);
+                        } else if (result && result.game) {
+                            io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
                         }
-                    } catch (e) { console.error(e); }
-                }, 30000);
-            } else {
-                const result = await gameStore.removePlayer(socket.id);
-                if (result && result.deleted) {
-                    console.log(`Game ${code} deleted (empty)`);
-                } else if (result && result.game) {
-                    io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
-                }
-            }
+                    }
+                } catch (e) { console.error(e); }
+            }, 60000); // 60 second timeout for reconnect
 
         } catch (err) {
             console.error("Disconnect handler error:", err);
@@ -477,7 +568,11 @@ io.on('connection', (socket) => {
                     finalRole: p.role
                 }));
 
-                game = await gameStore.updateGameState(roomCode, { state: 'RESULTS' });
+                // Mark game as completed with timestamp
+                game = await gameStore.updateGameState(roomCode, {
+                    state: 'RESULTS',
+                    completedAt: new Date()
+                });
 
                 const wolfTeamForWin = [...ALL_WOLF_ROLES, 'Minion'];
                 const playerResults = game.players.map(p => {
@@ -492,7 +587,7 @@ io.on('connection', (socket) => {
                         didWin = winners.includes('Village');
                     }
 
-                    return { id: p.id, didWin };
+                    return { id: p.id, odid: p.userId, didWin };
                 });
 
                 io.to(roomCode).emit('vote_results', {
@@ -507,6 +602,12 @@ io.on('connection', (socket) => {
                 });
 
                 console.log(`Game ${roomCode} ended. Winners: ${winners.join(', ')}`);
+
+                // Save stats asynchronously
+                const eliminatedIds = eliminated.map(e => e.id);
+                statsCollector.saveCompletedGame(game, winners, eliminatedIds)
+                    .then(() => console.log(`Stats saved for game ${roomCode}`))
+                    .catch(err => console.error('Failed to save stats:', err));
             }
         } catch (e) { console.error("Vote error", e); }
     });
@@ -540,7 +641,9 @@ io.on('connection', (socket) => {
                 nightLog: [],
                 shielded: [],
                 revealed: [],
-                pendingAcks: []
+                pendingAcks: [],
+                startedAt: null,
+                completedAt: null
             });
 
             await Promise.all(restartedGame.players.map(p =>
@@ -555,6 +658,17 @@ io.on('connection', (socket) => {
             });
             console.log(`Game ${roomCode} restarted by host`);
         } catch (e) { console.error("Error restarting", e); }
+    });
+
+    socket.on('leave_game', async () => {
+        try {
+            const result = await gameStore.removePlayer(socket.id);
+            if (result && result.game) {
+                const code = result.game.roomCode;
+                socket.leave(code);
+                io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
+            }
+        } catch (e) { console.error("Leave game error", e); }
     });
 });
 
