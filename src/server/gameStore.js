@@ -14,6 +14,11 @@ async function createGame(roomCode, playerName, socketId) {
         'Witch', 'Sentinel', 'Revealer'
     ];
 
+    // Clean up any orphaned player with this socket ID before creating
+    await prisma.player.deleteMany({
+        where: { id: socketId }
+    });
+
     return prisma.game.create({
         data: {
             roomCode,
@@ -48,6 +53,11 @@ async function joinGame(roomCode, playerName, socketId) {
 
         if (!game) throw new Error('Room not found');
         if (game.state !== 'LOBBY') throw new Error('Game already started');
+
+        // Clean up any orphaned player with this socket ID before joining
+        await tx.player.deleteMany({
+            where: { id: socketId }
+        });
 
         const newPlayer = await tx.player.create({
             data: {

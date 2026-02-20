@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
@@ -32,18 +34,28 @@ io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
     socket.on('create_game', async ({ name }) => {
-        try {
-            const roomCode = generateRoomCode();
-            const newGame = await gameStore.createGame(roomCode, name, socket.id);
+        const maxAttempts = 5;
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                const roomCode = generateRoomCode();
+                const newGame = await gameStore.createGame(roomCode, name, socket.id);
 
-            socket.join(roomCode);
+                socket.join(roomCode);
 
-            socket.emit('game_created', { roomCode, players: newGame.players, selectedRoles: newGame.selectedRoles });
-            io.to(roomCode).emit('update_players', newGame.players.filter(p => !p.disconnected));
-            console.log(`Game created: ${roomCode} by ${name}`);
-        } catch (err) {
-            console.error("Create game error:", err);
-            socket.emit('error', { message: 'Failed to create game' });
+                socket.emit('game_created', { roomCode, players: newGame.players, selectedRoles: newGame.selectedRoles });
+                io.to(roomCode).emit('update_players', newGame.players.filter(p => !p.disconnected));
+                console.log(`Game created: ${roomCode} by ${name}`);
+                return;
+            } catch (err) {
+                if (err.code === 'P2002' && attempt < maxAttempts - 1) {
+                    console.log(`Room code collision, retrying (attempt ${attempt + 1}/${maxAttempts})`);
+                    continue;
+                }
+                console.error("Create game error:", err);
+                socket.emit('error', { message: 'Failed to create game' });
+                return;
+            }
         }
     });
 
