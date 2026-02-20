@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const { createServer } = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 const { NIGHT_ORDER, INTERACTIVE_ROLES, WOLF_WAKE_ROLES, ALL_WOLF_ROLES, autoResolveRole, processNightAction, getNextNightTurn } = require('./gameLogic');
 
@@ -26,6 +27,14 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Serve the static frontend in production
+if (!dev) {
+    app.use(express.static(path.join(__dirname, 'client/dist')));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
+    });
+}
+
 function generateRoomCode() {
     return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
@@ -35,7 +44,7 @@ io.on('connection', (socket) => {
 
     socket.on('create_game', async ({ name }) => {
         const maxAttempts = 5;
-        
+
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
                 const roomCode = generateRoomCode();
