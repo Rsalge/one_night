@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node server.js",
-    "build": "next build",
+    "build": "npx prisma generate && next build",
     "start": "node server.js",
     "test": "jest --verbose"
   },
