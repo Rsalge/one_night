@@ -73,7 +73,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const { isConnected, emit, on, getSocketId } = useSocket();
 
   // Player state
-  const [playerName, setPlayerNameState] = useState<string | null>(() => 
+  const [playerName, setPlayerNameState] = useState<string | null>(() =>
     sessionStorage.getItem('onw_playerName')
   );
   const [socketId, setSocketId] = useState<string | null>(null);
@@ -234,7 +234,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setSelectedRoles(data.selectedRoles);
       setIsHost(true);
       setPhase('lobby');
-      
+
       // Set session for reconnection
       const sessionId = getSessionId();
       emit('set_session', { sessionId, roomCode: data.roomCode });
@@ -247,7 +247,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setPlayers(data.players);
       setSelectedRoles(data.selectedRoles);
       setPhase('lobby');
-      
+
       // Set session for reconnection
       const sessionId = getSessionId();
       emit('set_session', { sessionId, roomCode: data.roomCode });
@@ -287,7 +287,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setNightTurn(turn);
       setPhase('night');
       setActionResult(null);
-      
+
       // Build action prompt if it's our turn
       if (turn.isInteractive && turn.activePlayerIds.includes(getSocketId() ?? '')) {
         const prompt = buildNightActionPrompt(turn, players);
@@ -299,14 +299,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     // Action result
     const unsubActionResult = on('action_result', (result) => {
-      setActionResult(result);
+      setActionResult(result || { type: 'info', message: 'Action completed with no effect.' });
       setNightAction(null);
-      
+
       // Update myRole if it changed (e.g., Robber, PI)
-      if (result.newRole) {
+      if (result && result.newRole) {
         setMyRole(result.newRole);
       }
-      if (result.becameRole) {
+      if (result && result.becameRole) {
         setMyRole(result.becameRole);
       }
     });
@@ -414,10 +414,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const submitNightAction = useCallback((targetIds: (string | number)[]) => {
     if (roomCode && nightTurn?.activeRole) {
-      emit('night_action', { 
-        roomCode, 
-        action: nightTurn.activeRole, 
-        targetIds 
+      emit('night_action', {
+        roomCode,
+        action: nightTurn.activeRole,
+        targetIds
       });
     }
   }, [emit, roomCode, nightTurn]);

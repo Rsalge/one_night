@@ -129,7 +129,10 @@ function processNightAction(game, player, action, targetIds) {
         const targetId = targetIds[0];
         if (typeof targetId === 'string') {
             const target = game.players.find(p => p.id === targetId);
-            if (target && !ALL_WOLF_ROLES.includes(target.originalRole) && !isShielded(game, targetId)) {
+            if (target && ALL_WOLF_ROLES.includes(target.originalRole)) {
+                result = { type: 'info', message: `${target.name} is already a Wolf!` };
+                game.nightLog.push({ role: 'Alpha Wolf', description: `${player.name} (Alpha Wolf) tried to turn ${target.name} into a Werewolf, but they were already a wolf` });
+            } else if (target && !isShielded(game, targetId)) {
                 const oldRole = target.role;
                 target.role = 'Werewolf';
                 result = { type: 'info', message: `You turned ${target.name} into a Werewolf.` };
