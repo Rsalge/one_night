@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Game {
+  roomCode      String   @id
+  state         String   // 'LOBBY', 'NIGHT', 'DAY', 'RESULTS'
+  selectedRoles Json?    // Array of Strings
+  centerRoles   Json?    // Array of Strings
+  nightIndex    Int      @default(0)
+  nightLog      Json?    // Array of action objects
+  shielded      Json?    // Array of player IDs
+  revealed      Json?    // Array of {id, name, role}
+  votes         Json?    // Key-value mapping
+  pendingAcks   Json?    // Array of player IDs that need to acknowledge
+  players       Player[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Player {
+  id           String   @id // socket.id initially
+  sessionId    String?
+  gameId       String
+  game         Game     @relation(fields: [gameId], references: [roomCode], onDelete: Cascade)
+  name         String
+  isHost       Boolean  @default(false)
+  role         String?
+  originalRole String?
+  disconnected Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
