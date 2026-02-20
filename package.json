@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node server.js",
     "dev:client": "cd client && npm run dev",
-    "build": "npx prisma generate && cd client && npm run build",
+    "build": "npx prisma generate && cd client && npm install --include=dev && npm run build",
     "start": "node server.js",
     "test": "jest --verbose",
     "prisma:migrate": "prisma migrate dev",
@@ -14,15 +14,15 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.1",
     "@prisma/client": "^7.4.1",
-    "bcrypt": "^6.0.0",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
+    "jsonwebtoken": "^9.0.2",
     "pg": "^8.18.0",
+    "prisma": "^7.4.1",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "dotenv": "^17.3.1",
-    "jest": "^30.2.0",
-    "prisma": "^7.4.1"
+    "jest": "^30.2.0"
   }
 }

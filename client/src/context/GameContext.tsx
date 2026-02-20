@@ -355,13 +355,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     // Action result
     const unsubActionResult = on('action_result', (result) => {
-      setActionResult(result);
+      setActionResult(result || { type: 'info', message: 'Action completed with no effect.' });
       setNightAction(null);
 
-      if (result.newRole) {
+      // Update myRole if it changed (e.g., Robber, PI)
+      if (result && result.newRole) {
         setMyRole(result.newRole);
       }
-      if (result.becameRole) {
+      if (result && result.becameRole) {
         setMyRole(result.becameRole);
       }
     });
