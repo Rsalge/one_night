@@ -13,6 +13,17 @@ const ALL_ROLES = [
     'Witch', 'Sentinel', 'Revealer'
 ];
 
+// Default role selection for new games
+// Total: 11 cards (works for 8 players: 8 + 3 center)
+const DEFAULT_ROLES = [
+    'Werewolf', 'Werewolf',                    // 2 Werewolves
+    'Minion',                                   // 1 Minion
+    'Villager', 'Villager', 'Villager',        // 3 Villagers
+    'Witch',                                    // 1 Witch
+    'Seer',                                     // 1 Seer
+    'Mason', 'Mason',                           // 2 Masons
+];
+
 async function createGame(roomCode, userId, username, socketId) {
     // Clean up any orphaned player with this socket ID before creating
     await prisma.player.deleteMany({
@@ -23,7 +34,7 @@ async function createGame(roomCode, userId, username, socketId) {
         data: {
             roomCode,
             state: 'LOBBY',
-            selectedRoles: ALL_ROLES,
+            selectedRoles: DEFAULT_ROLES,
             players: {
                 create: {
                     id: socketId,
