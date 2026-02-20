@@ -30,7 +30,7 @@ app.get('/health', (req, res) => {
 // Serve the static frontend in production
 if (!dev) {
     app.use(express.static(path.join(__dirname, 'client/dist')));
-    app.get('*', (req, res) => {
+    app.use((req, res) => {
         res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
     });
 }
