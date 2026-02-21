@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
-import { RoleCardReveal, CheatSheet } from '../components/RoleCard';
+import { RoleCardReveal, CheatSheet, SwipeableRoleCard } from '../components/RoleCard';
 import { ROLES, getRoleName, getRoleEmoji, getRoleTeam } from '../types/roles';
 
 export function Game() {
@@ -21,6 +21,8 @@ export function Game() {
     socketId,
     voteCount,
     hasVoted,
+    roleReadyCount,
+    confirmRoleReady,
     submitNightAction,
     acknowledgeNightResult,
     castVote,
@@ -31,6 +33,8 @@ export function Game() {
   const [selectedTargets, setSelectedTargets] = useState<(string | number)[]>([]);
   const [showCheatSheet, setShowCheatSheet] = useState(false);
   const [myVoteTarget, setMyVoteTarget] = useState<string | null>(null);
+  const [hasRevealedRole, setHasRevealedRole] = useState(false);
+  const [hasConfirmedReady, setHasConfirmedReady] = useState(false);
 
   // Navigate back to home if no room
   useEffect(() => {
@@ -44,6 +48,14 @@ export function Game() {
     setSelectedTargets([]);
   }, [nightAction]);
 
+  // Reset role reveal states when phase changes (new game)
+  useEffect(() => {
+    if (phase === 'role_reveal') {
+      setHasRevealedRole(false);
+      setHasConfirmedReady(false);
+    }
+  }, [phase]);
+
   const handleLeave = () => {
     leaveGame();
     navigate('/');
@@ -51,17 +63,95 @@ export function Game() {
 
   // Role Reveal Phase
   if (phase === 'role_reveal' && myRole) {
+    const handleRoleReveal = () => {
+      setHasRevealedRole(true);
+    };
+
+    const handleRoleHide = () => {
+      setHasRevealedRole(false);
+    };
+
+    const handleConfirmReady = () => {
+      setHasConfirmedReady(true);
+      confirmRoleReady();
+    };
+
+    // Waiting state - after confirming ready
+    if (hasConfirmedReady) {
+      return (
+        <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center p-4 safe-area-inset">
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-4">🌙</div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white mb-2">Waiting for Others...</h1>
+            <p className="text-gray-400 text-sm">The night will begin when everyone is ready</p>
+          </div>
+
+          {/* Ready count display */}
+          <div className="card w-full max-w-sm">
+            <div className="text-center mb-4">
+              <div className="text-4xl font-bold text-amber-400">
+                {roleReadyCount.ready} / {roleReadyCount.total}
+              </div>
+              <p className="text-gray-400 text-sm mt-1">players ready</p>
+            </div>
+
+            {/* Progress bar */}
+            <div className="h-2 bg-indigo-900 rounded-full overflow-hidden mb-4">
+              <div 
+                className="h-full bg-amber-500 transition-all duration-300"
+                style={{ width: `${roleReadyCount.total > 0 ? (roleReadyCount.ready / roleReadyCount.total) * 100 : 0}%` }}
+              />
+            </div>
+
+            {/* Player indicators */}
+            <div className="flex flex-wrap justify-center gap-2">
+              {players.map((player, index) => (
+                <div 
+                  key={player.id}
+                  className={`w-3 h-3 rounded-full transition-colors duration-300 ${
+                    index < roleReadyCount.ready ? 'bg-green-500' : 'bg-gray-600'
+                  }`}
+                  title={player.name}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Your role reminder */}
+          <div className="mt-6 p-4 rounded-xl bg-indigo-900/30 max-w-sm w-full">
+            <div className="text-xs text-gray-400 mb-1 text-center">Your role</div>
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-3xl">{ROLES[myRole as keyof typeof ROLES]?.emoji ?? '❓'}</span>
+              <span className="text-white font-semibold text-lg">{ROLES[myRole as keyof typeof ROLES]?.name ?? myRole}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Swipeable card with ready button (shown once user has revealed at least once)
     return (
       <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center p-4 safe-area-inset">
         <div className="text-center mb-6">
           <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">Your Role</h1>
-          <p className="text-gray-400 text-sm">Remember it well!</p>
         </div>
 
-        <RoleCardReveal roleId={myRole} />
+        <SwipeableRoleCard 
+          roleId={myRole} 
+          onReveal={handleRoleReveal}
+          onHide={handleRoleHide}
+          revealed={hasRevealedRole}
+        />
 
-        <p className="text-gray-400 text-sm text-center mt-6 max-w-sm">
-          The night phase will begin once everyone has viewed their roles.
+        <button
+          onClick={handleConfirmReady}
+          className="btn-primary w-full max-w-sm mt-6 text-lg py-4"
+        >
+          I'm Ready for Night
+        </button>
+
+        <p className="text-gray-500 text-xs text-center mt-3 max-w-sm">
+          {roleReadyCount.ready} of {roleReadyCount.total} players ready
         </p>
       </div>
     );

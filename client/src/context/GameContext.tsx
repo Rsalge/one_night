@@ -45,6 +45,9 @@ interface GameContextValue {
   voteCount: { voted: number; total: number };
   hasVoted: boolean;
 
+  // Role ready tracking
+  roleReadyCount: { ready: number; total: number };
+
   // Actions
   createGame: () => void;
   joinGame: (code: string) => void;
@@ -56,6 +59,7 @@ interface GameContextValue {
   restartGame: () => void;
   clearError: () => void;
   leaveGame: () => void;
+  confirmRoleReady: () => void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -92,6 +96,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // Vote tracking
   const [voteCount, setVoteCount] = useState({ voted: 0, total: 0 });
   const [hasVoted, setHasVoted] = useState(false);
+
+  // Role ready tracking
+  const [roleReadyCount, setRoleReadyCount] = useState({ ready: 0, total: 0 });
 
   // Track socket ID
   useEffect(() => {
@@ -337,6 +344,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setGameResult(null);
       setHasVoted(false);
       setVoteCount({ voted: 0, total: data.players.length });
+      setRoleReadyCount({ ready: 0, total: data.players.length });
+    });
+
+    // Role ready update
+    const unsubRoleReadyUpdate = on('role_ready_update', (data) => {
+      setRoleReadyCount({ ready: data.readyCount, total: data.totalPlayers });
     });
 
     // Night turn
@@ -422,6 +435,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       unsubUpdatePlayers();
       unsubRolesUpdated();
       unsubGameStarted();
+      unsubRoleReadyUpdate();
       unsubNightTurn();
       unsubActionResult();
       unsubPhaseChange();
@@ -510,6 +524,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGameResult(null);
   }, [emit]);
 
+  const confirmRoleReady = useCallback(() => {
+    if (roomCode) {
+      emit('confirm_role_ready', { roomCode });
+    }
+  }, [emit, roomCode]);
+
   const value: GameContextValue = {
     // Auth
     isAuthenticated,
@@ -541,6 +561,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     error,
     voteCount,
     hasVoted,
+    roleReadyCount,
 
     // Actions
     createGame,
@@ -553,6 +574,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     restartGame,
     clearError,
     leaveGame,
+    confirmRoleReady,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

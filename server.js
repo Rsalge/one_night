@@ -462,6 +462,11 @@ io.on('connection', (socket) => {
 
             const startedGame = await gameStore.startGame(roomCode, dbGame.selectedRoles);
 
+            // Initialize pending role confirmations with all player IDs
+            await gameStore.updateGameState(roomCode, {
+                pendingRoleConfirms: startedGame.players.map(p => p.id)
+            });
+
             startedGame.players.forEach((p) => {
                 io.to(p.id).emit('game_started', {
                     role: p.role,
@@ -471,10 +476,65 @@ io.on('connection', (socket) => {
                 });
             });
 
-            setTimeout(() => advanceNightPhase(roomCode), 3000);
+            // Send initial ready count (0 ready)
+            io.to(roomCode).emit('role_ready_update', {
+                readyCount: 0,
+                totalPlayers: startedGame.players.length
+            });
+
+            console.log(`Game ${roomCode} started, waiting for ${startedGame.players.length} players to confirm ready`);
+
+            // NO AUTO-START TIMEOUT - wait indefinitely for all players to confirm
         } catch (err) {
             console.error("Error starting game", err);
             socket.emit('error', { message: err.message || "Failed to start" });
+        }
+    });
+
+    socket.on('confirm_role_ready', async ({ roomCode }) => {
+        try {
+            const game = await gameStore.getGame(roomCode);
+            if (!game) {
+                console.log('[ROLE_READY] Game not found:', roomCode);
+                return;
+            }
+            if (game.state !== 'NIGHT') {
+                console.log('[ROLE_READY] Game not in NIGHT state:', game.state);
+                return;
+            }
+
+            let pending = game.pendingRoleConfirms || [];
+            
+            // Check if this player already confirmed
+            if (!pending.includes(socket.id)) {
+                console.log('[ROLE_READY] Player already confirmed:', socket.id);
+                return;
+            }
+
+            // Remove this player from pending list
+            pending = pending.filter(id => id !== socket.id);
+
+            await gameStore.updateGameState(roomCode, {
+                pendingRoleConfirms: pending
+            });
+
+            const readyCount = game.players.length - pending.length;
+            
+            console.log(`[ROLE_READY] Player ${socket.id} confirmed ready in ${roomCode} (${readyCount}/${game.players.length})`);
+
+            // Broadcast updated ready count to all players
+            io.to(roomCode).emit('role_ready_update', {
+                readyCount: readyCount,
+                totalPlayers: game.players.length
+            });
+
+            // If everyone is ready, start night phase
+            if (pending.length === 0) {
+                console.log(`[ROLE_READY] All players ready in ${roomCode}, starting night phase`);
+                advanceNightPhase(roomCode);
+            }
+        } catch (e) {
+            console.error('[ROLE_READY] Error:', e);
         }
     });
 

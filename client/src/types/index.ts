@@ -131,6 +131,7 @@ export interface ServerToClientEvents {
   joined_room: (data: { roomCode: string; players: Player[]; selectedRoles: string[] }) => void;
   update_players: (players: Player[]) => void;
   roles_updated: (data: { selectedRoles: string[] }) => void;
+  role_ready_update: (data: { readyCount: number; totalPlayers: number }) => void;
 
   // Reconnection
   rejoined_game: (data: {
@@ -190,6 +191,9 @@ export interface ClientToServerEvents {
 
   // Restart
   restart_game: (data: { roomCode: string }) => void;
+
+  // Role ready confirmation
+  confirm_role_ready: (data: { roomCode: string }) => void;
 }
 
 // Auth socket events (separate namespace)

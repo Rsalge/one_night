@@ -41,6 +41,7 @@ model Game {
   revealed      Json?    // Array of {id, name, role}
   votes         Json?    // Key-value mapping
   pendingAcks   Json?    // Array of player IDs that need to acknowledge
+  pendingRoleConfirms Json? // Array of player IDs who haven't confirmed ready for night
   startedAt     DateTime? // When game started (left lobby)
   completedAt   DateTime? // When game ended (results)
   players       Player[]
