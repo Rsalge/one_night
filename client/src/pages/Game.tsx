@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
-import { RoleCardReveal, CheatSheet, SwipeableRoleCard } from '../components/RoleCard';
+import { CheatSheet, SwipeableRoleCard } from '../components/RoleCard';
 import { ROLES, getRoleName, getRoleEmoji, getRoleTeam } from '../types/roles';
 
 export function Game() {
@@ -97,7 +97,7 @@ export function Game() {
 
             {/* Progress bar */}
             <div className="h-2 bg-indigo-900 rounded-full overflow-hidden mb-4">
-              <div 
+              <div
                 className="h-full bg-amber-500 transition-all duration-300"
                 style={{ width: `${roleReadyCount.total > 0 ? (roleReadyCount.ready / roleReadyCount.total) * 100 : 0}%` }}
               />
@@ -106,11 +106,10 @@ export function Game() {
             {/* Player indicators */}
             <div className="flex flex-wrap justify-center gap-2">
               {players.map((player, index) => (
-                <div 
+                <div
                   key={player.id}
-                  className={`w-3 h-3 rounded-full transition-colors duration-300 ${
-                    index < roleReadyCount.ready ? 'bg-green-500' : 'bg-gray-600'
-                  }`}
+                  className={`w-3 h-3 rounded-full transition-colors duration-300 ${index < roleReadyCount.ready ? 'bg-green-500' : 'bg-gray-600'
+                    }`}
                   title={player.name}
                 />
               ))}
@@ -136,8 +135,8 @@ export function Game() {
           <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">Your Role</h1>
         </div>
 
-        <SwipeableRoleCard 
-          roleId={myRole} 
+        <SwipeableRoleCard
+          roleId={myRole}
           onReveal={handleRoleReveal}
           onHide={handleRoleHide}
           revealed={hasRevealedRole}
@@ -160,7 +159,7 @@ export function Game() {
   // Night Phase - Waiting / Non-interactive turn
   if (phase === 'night' && nightTurn && !nightAction) {
     const isMyTurn = nightTurn.activePlayerIds.includes(socketId ?? '');
-    
+
     return (
       <div className="night-cover safe-area-inset">
         <div className="text-8xl sm:text-9xl moon-glow mb-8">🌕</div>
@@ -258,7 +257,7 @@ export function Game() {
 
     const canSubmit = () => {
       if (selectedTargets.length === 0) return false;
-      
+
       // Seer: 1 player OR 2 center cards
       if (nightAction.role === 'Seer') {
         const centerCount = selectedTargets.filter(t => typeof t === 'number').length;
@@ -501,7 +500,7 @@ export function Game() {
   if (phase === 'results' && gameResult) {
     const myPlayerResult = gameResult.playerResults?.find(r => r.id === socketId);
     const didWin = myPlayerResult?.didWin ?? false;
-    
+
     // Get my final role from roleReveal
     const myRoleInfo = gameResult.roleReveal?.find(r => r.id === socketId);
     const myFinalRole = myRoleInfo?.finalRole;

@@ -1,0 +1,276 @@
+
+> one_night@0.2.0 test:integration
+> jest src/server/gameFlow.test.js --verbose --runInBand --detectOpenHandles --forceExit
+
+  console.log
+    [dotenv@17.3.1] injecting env (2) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+(node:57585) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:57585) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+  console.log
+    Client connected: XuGq6RMkL7qak905AAAD - User: tu_185138_1
+
+      at Namespace.log (server.js:330:13)
+
+  console.log
+    Client connected: oT-QwKzbfLgNxsY2AAAE - User: tu_186572_2
+
+      at Namespace.log (server.js:330:13)
+
+  console.log
+    Client connected: yriJuBDUeEoUsWtNAAAF - User: tu_186895_3
+
+      at Namespace.log (server.js:330:13)
+
+  console.log
+    Game created: TUJH by tu_185138_1
+
+      at Socket.log (server.js:345:25)
+
+  console.log
+    Player tu_186572_2 joined TUJH
+
+      at Socket.log (server.js:369:21)
+
+  console.log
+    Player tu_186895_3 joined TUJH
+
+      at Socket.log (server.js:369:21)
+
+  console.log
+    Night turn: Werewolf (interactive: true)
+
+      at log (server.js:200:17)
+
+  console.log
+    [night_action] roomCode=TUJH, action=act, targetIds=["oT-QwKzbfLgNxsY2AAAE"]
+
+      at Socket.log (server.js:488:21)
+
+  console.log
+    [night_action] player.originalRole=Werewolf, currentRole=Werewolf, nightIndex=1
+
+      at Socket.log (server.js:503:21)
+
+  console.log
+    [night_action] processNightAction result: null
+
+      at Socket.log (server.js:518:21)
+
+  console.log
+    Game TUJH switching to DAY
+
+      at log (server.js:172:21)
+
+  console.log
+    [VOTE] tu_185138_1 voted for XuGq6RMkL7qak905AAAD. Current Votes: {"XuGq6RMkL7qak905AAAD":"XuGq6RMkL7qak905AAAD"}
+
+      at Socket.log (server.js:565:21)
+
+  console.log
+    VOTE UPDATE HOST: { votedCount: 1, totalPlayers: 3 }
+
+      at Socket.log (src/server/gameFlow.test.js:118:56)
+
+  console.log
+    [VOTE] tu_186895_3 voted for XuGq6RMkL7qak905AAAD. Current Votes: {"XuGq6RMkL7qak905AAAD":"XuGq6RMkL7qak905AAAD","yriJuBDUeEoUsWtNAAAF":"XuGq6RMkL7qak905AAAD"}
+
+      at Socket.log (server.js:565:21)
+
+  console.log
+    VOTE UPDATE HOST: { votedCount: 2, totalPlayers: 3 }
+
+      at Socket.log (src/server/gameFlow.test.js:118:56)
+
+  console.error
+    Vote error PrismaClientKnownRequestError: 
+    Invalid `tx.game.update()` invocation in
+    /Users/rosssalge/Code/one_night/src/server/gameStore.js:274:30
+    
+      271 
+      272 votes[socketId] = voteTarget;
+      273 
+    → 274 game = await tx.game.update(
+    Transaction failed due to a write conflict or a deadlock. Please retry your transaction
+        at zr.handleRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+        at zr.handleAndLogRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+        at zr.request (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at a (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:808:24)
+        at prisma.$transaction.isolationLevel (/Users/rosssalge/Code/one_night/src/server/gameStore.js:274:16)
+        at Proxy._transactionWithCallback (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:697:18)
+        at Socket.<anonymous> (/Users/rosssalge/Code/one_night/server.js:560:28) {
+      code: 'P2034',
+      meta: {
+        modelName: 'Game',
+        driverAdapterError: DriverAdapterError: TransactionWriteConflict
+            at PgTransaction.onError (/Users/rosssalge/Code/one_night/node_modules/@prisma/adapter-pg/dist/index.js:687:11)
+            at PgTransaction.performIO (/Users/rosssalge/Code/one_night/node_modules/@prisma/adapter-pg/dist/index.js:682:12)
+            at processTicksAndRejections (node:internal/process/task_queues:104:5)
+            at PgTransaction.queryRaw (/Users/rosssalge/Code/one_night/node_modules/@prisma/adapter-pg/dist/index.js:602:30)
+            at e.interpretNode (/Users/rosssalge/Code/one_night/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:182:26)
+            at e.interpretNode (/Users/rosssalge/Code/one_night/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:209:41)
+            at e.interpretNode (/Users/rosssalge/Code/one_night/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:124:29)
+            at e.interpretNode (/Users/rosssalge/Code/one_night/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:268:41)
+            at e.run (/Users/rosssalge/Code/one_night/node_modules/@prisma/client-engine-runtime/src/interpreter/query-interpreter.ts:93:23)
+            at execute (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/core/engines/client/LocalExecutor.ts:81:12)
+            at qt.request (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/core/engines/client/ClientEngine.ts:492:22)
+            at Object.singleLoader (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:112:26) {
+          cause: [Object]
+        }
+      },
+      clientVersion: '7.4.1'
+    }
+
+      702 |                     .catch(err => console.error('Failed to save stats:', err));
+      703 |             }
+    > 704 |         } catch (e) { console.error("Vote error", e); }
+          |                               ^
+      705 |     });
+      706 |
+      707 |     socket.on('update_roles', async ({ roomCode, selectedRoles }) => {
+
+      at Socket.error (server.js:704:31)
+
+  console.log
+    Client disconnected: XuGq6RMkL7qak905AAAD - User: tu_185138_1
+
+      at Socket.log (server.js:416:17)
+
+  console.log
+    Client disconnected: oT-QwKzbfLgNxsY2AAAE - User: tu_186572_2
+
+      at Socket.log (server.js:416:17)
+
+  console.log
+    Client disconnected: yriJuBDUeEoUsWtNAAAF - User: tu_186895_3
+
+      at Socket.log (server.js:416:17)
+
+  console.error
+    Disconnect handler error: PrismaClientKnownRequestError: 
+    Invalid `prisma.player.update()` invocation in
+    /Users/rosssalge/Code/one_night/src/server/gameStore.js:152:26
+    
+      149 const player = await prisma.player.findUnique({ where: { id: socketId } });
+      150 if (!player) return null;
+      151 
+    → 152 return prisma.player.update(
+    An operation failed because it depends on one or more records that were required but not found. No record was found for an update.
+        at zr.handleRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+        at zr.handleAndLogRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+        at zr.request (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at a (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:808:24)
+        at Socket.<anonymous> (/Users/rosssalge/Code/one_night/server.js:420:34) {
+      code: 'P2025',
+      meta: { modelName: 'Player', operation: 'an update' },
+      clientVersion: '7.4.1'
+    }
+
+      452 |
+      453 |         } catch (err) {
+    > 454 |             console.error("Disconnect handler error:", err);
+          |                     ^
+      455 |         }
+      456 |     });
+      457 |
+
+      at Socket.error (server.js:454:21)
+
+  console.error
+    Disconnect handler error: PrismaClientKnownRequestError: 
+    Invalid `prisma.player.update()` invocation in
+    /Users/rosssalge/Code/one_night/src/server/gameStore.js:152:26
+    
+      149 const player = await prisma.player.findUnique({ where: { id: socketId } });
+      150 if (!player) return null;
+      151 
+    → 152 return prisma.player.update(
+    An operation failed because it depends on one or more records that were required but not found. No record was found for an update.
+        at zr.handleRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+        at zr.handleAndLogRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+        at zr.request (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at a (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:808:24)
+        at Socket.<anonymous> (/Users/rosssalge/Code/one_night/server.js:420:34) {
+      code: 'P2025',
+      meta: { modelName: 'Player', operation: 'an update' },
+      clientVersion: '7.4.1'
+    }
+
+      452 |
+      453 |         } catch (err) {
+    > 454 |             console.error("Disconnect handler error:", err);
+          |                     ^
+      455 |         }
+      456 |     });
+      457 |
+
+      at Socket.error (server.js:454:21)
+
+  console.error
+    Disconnect handler error: PrismaClientKnownRequestError: 
+    Invalid `prisma.player.update()` invocation in
+    /Users/rosssalge/Code/one_night/src/server/gameStore.js:152:26
+    
+      149 const player = await prisma.player.findUnique({ where: { id: socketId } });
+      150 if (!player) return null;
+      151 
+    → 152 return prisma.player.update(
+    An operation failed because it depends on one or more records that were required but not found. No record was found for an update.
+        at zr.handleRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:237:13)
+        at zr.handleAndLogRequestError (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:183:12)
+        at zr.request (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/RequestHandler.ts:152:12)
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+        at a (/Users/rosssalge/Code/one_night/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:808:24)
+        at Socket.<anonymous> (/Users/rosssalge/Code/one_night/server.js:420:34) {
+      code: 'P2025',
+      meta: { modelName: 'Player', operation: 'an update' },
+      clientVersion: '7.4.1'
+    }
+
+      452 |
+      453 |         } catch (err) {
+    > 454 |             console.error("Disconnect handler error:", err);
+          |                     ^
+      455 |         }
+      456 |     });
+      457 |
+
+      at Socket.error (server.js:454:21)
+
+(node:57585) Warning: `--localstorage-file` was provided without a valid path
+FAIL src/server/gameFlow.test.js (26.011 s)
+  Game Flow Integration
+    ✕ Full End-to-End Game Flow (23156 ms)
+
+  ● Game Flow Integration › Full End-to-End Game Flow
+
+    Timeout waiting for vote_results on socket XuGq6RMkL7qak905AAAD
+
+      15 |     function waitForEvent(socket, eventName, timeout = 5000) {
+      16 |         return new Promise((resolve, reject) => {
+    > 17 |             const timer = setTimeout(() => reject(new Error(`Timeout waiting for ${eventName} on socket ${socket.id}`)), timeout);
+         |                                                   ^
+      18 |             socket.once(eventName, (data) => {
+      19 |                 clearTimeout(timer);
+      20 |                 resolve(data);
+
+      at Timeout._onTimeout (src/server/gameFlow.test.js:17:51)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 total
+Snapshots:   0 total
+Time:        26.048 s, estimated 28 s
+Ran all test suites matching src/server/gameFlow.test.js.
