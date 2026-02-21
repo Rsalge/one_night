@@ -26,6 +26,7 @@ async function getPlayerStats(userId) {
     const basicStats = {
         userId: user.id,
         username: user.username,
+        avatarUrl: user.avatarUrl,
         gamesPlayed: user.gamesPlayed,
         totalWins: user.totalWins,
         totalLosses: user.totalLosses,

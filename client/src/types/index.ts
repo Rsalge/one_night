@@ -131,7 +131,7 @@ export interface ServerToClientEvents {
   joined_room: (data: { roomCode: string; players: Player[]; selectedRoles: string[] }) => void;
   update_players: (players: Player[]) => void;
   roles_updated: (data: { selectedRoles: string[] }) => void;
-  
+
   // Reconnection
   rejoined_game: (data: {
     roomCode: string;
@@ -143,7 +143,7 @@ export interface ServerToClientEvents {
     isHost: boolean;
   }) => void;
   no_active_game: () => void;
-  
+
   // Game start
   game_started: (data: {
     role: string;
@@ -151,19 +151,19 @@ export interface ServerToClientEvents {
     centerCardsCount: number;
     roomCode: string;
   }) => void;
-  
+
   // Night phase
   night_turn: (turn: NightTurn) => void;
   action_result: (result: ActionResult) => void;
-  
+
   // Day/voting phase
   phase_change: (data: { phase: 'DAY'; players: Array<{ id: string; name: string }> }) => void;
   vote_update: (data: { votedCount: number; totalPlayers: number }) => void;
   vote_results: (results: VoteResults) => void;
-  
+
   // Lobby return
   return_to_lobby: (data: { players: Player[]; selectedRoles: string[] }) => void;
-  
+
   // Error
   error: (data: { message: string }) => void;
 }
@@ -173,21 +173,21 @@ export interface ClientToServerEvents {
   create_game: () => void;
   join_game: (data: { roomCode: string }) => void;
   leave_game: () => void;
-  
+
   // Reconnection
   reconnect_to_game: () => void;
-  
+
   // Game control
   start_game: (data: { roomCode: string }) => void;
   update_roles: (data: { roomCode: string; selectedRoles: string[] }) => void;
-  
+
   // Night actions
   night_action: (data: { roomCode: string; action: string; targetIds: (string | number)[] }) => void;
   acknowledge_night: (data: { roomCode: string }) => void;
-  
+
   // Voting
   cast_vote: (data: { roomCode: string; voteTarget: string }) => void;
-  
+
   // Restart
   restart_game: (data: { roomCode: string }) => void;
 }
@@ -257,6 +257,7 @@ export interface RoleStats {
 export interface PlayerStats {
   userId: number;
   username: string;
+  avatarUrl?: string | null;
   gamesPlayed: number;
   totalWins: number;
   totalLosses: number;

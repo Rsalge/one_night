@@ -29,7 +29,7 @@ const statsAPI = require('./src/server/statsAPI');
 const socketToUser = new Map(); // socketId -> { userId, username }
 
 // Middleware for JSON parsing
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // CORS for development
 if (dev) {
@@ -86,6 +86,27 @@ app.get('/api/stats/:userId', async (req, res) => {
     } catch (err) {
         console.error('Stats error:', err);
         res.status(404).json({ error: 'User not found' });
+    }
+});
+
+// Upload user avatar
+app.post('/api/user/avatar', authenticateHTTP, async (req, res) => {
+    try {
+        const { avatarUrl } = req.body;
+        // Basic validation - check if it looks like a base64 Data URL or an empty string to clear
+        if (avatarUrl && !avatarUrl.startsWith('data:image/')) {
+            return res.status(400).json({ error: 'Invalid image format' });
+        }
+
+        await require('./src/lib/db').user.update({
+            where: { id: req.userId },
+            data: { avatarUrl: avatarUrl || null }
+        });
+
+        res.json({ success: true, avatarUrl });
+    } catch (err) {
+        console.error('Avatar upload error:', err);
+        res.status(500).json({ error: 'Failed to update avatar' });
     }
 });
 

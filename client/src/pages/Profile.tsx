@@ -11,6 +11,7 @@ export function Profile() {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -63,6 +64,50 @@ export function Profile() {
     );
   }
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image must be less than 5MB');
+      return;
+    }
+
+    setUploadingAvatar(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Str = reader.result as string;
+        const token = localStorage.getItem('token');
+
+        const response = await fetch(`${API_URL}/api/user/avatar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ avatarUrl: base64Str })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to upload avatar');
+        }
+
+        const data = await response.json();
+        if (stats) {
+          setStats({ ...stats, avatarUrl: data.avatarUrl });
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to process image');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   if (error || !stats) {
     return (
       <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center p-4 gap-4">
@@ -83,7 +128,28 @@ export function Profile() {
         {/* Header */}
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">{username}'s Profile</h1>
+            <div className="flex items-center gap-4">
+              <label className="relative cursor-pointer group">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                  disabled={uploadingAvatar}
+                />
+                <div className={`w-16 h-16 rounded-full overflow-hidden bg-indigo-900 border-2 border-indigo-500 flex items-center justify-center ${uploadingAvatar ? 'opacity-50' : 'group-hover:opacity-80'}`}>
+                  {stats.avatarUrl ? (
+                    <img src={stats.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl">👤</span>
+                  )}
+                </div>
+                <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-white text-xs text-center leading-tight">Change<br />Photo</span>
+                </div>
+              </label>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white">{username}'s Profile</h1>
+            </div>
             <button
               onClick={() => navigate('/')}
               className="px-4 py-2 rounded-xl text-gray-300 hover:bg-white/10 transition-colors"
@@ -104,10 +170,9 @@ export function Profile() {
             </div>
             <div className="bg-slate-700/50 rounded-xl p-4">
               <div className="text-gray-400 text-xs uppercase tracking-wide">Current Streak</div>
-              <div className={`text-2xl font-bold ${
-                stats.currentStreak > 0 ? 'text-green-400' : 
-                stats.currentStreak < 0 ? 'text-red-400' : 'text-white'
-              }`}>
+              <div className={`text-2xl font-bold ${stats.currentStreak > 0 ? 'text-green-400' :
+                  stats.currentStreak < 0 ? 'text-red-400' : 'text-white'
+                }`}>
                 {stats.currentStreak > 0 ? `+${stats.currentStreak}` : stats.currentStreak}
               </div>
             </div>
@@ -206,8 +271,8 @@ export function Profile() {
             <h2 className="text-xl font-bold text-white mb-4">Role Performance</h2>
             <div className="space-y-2">
               {stats.roleStats.map((role) => (
-                <div 
-                  key={role.role} 
+                <div
+                  key={role.role}
                   className="bg-slate-700/50 rounded-xl p-3 flex items-center justify-between"
                 >
                   <div className="flex-1">
@@ -217,10 +282,9 @@ export function Profile() {
                   <div className="flex items-center gap-4 text-sm">
                     <span className="text-green-400">{role.wins}W</span>
                     <span className="text-red-400">{role.losses}L</span>
-                    <span className={`font-bold w-14 text-right ${
-                      role.winRate >= 60 ? 'text-green-400' :
-                      role.winRate >= 40 ? 'text-white' : 'text-red-400'
-                    }`}>
+                    <span className={`font-bold w-14 text-right ${role.winRate >= 60 ? 'text-green-400' :
+                        role.winRate >= 40 ? 'text-white' : 'text-red-400'
+                      }`}>
                       {role.winRate}%
                     </span>
                   </div>
