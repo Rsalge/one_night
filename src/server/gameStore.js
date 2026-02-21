@@ -234,6 +234,7 @@ async function startGame(roomCode, rolesToUse) {
                 revealed: [],
                 votes: {},
                 pendingAcks: [],
+                pendingRoleConfirms: game.players.map(p => p.id),
                 startedAt: new Date()
             },
             include: { players: true }

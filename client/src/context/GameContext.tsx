@@ -46,7 +46,7 @@ interface GameContextValue {
   hasVoted: boolean;
 
   // Role ready tracking
-  roleReadyCount: { ready: number; total: number };
+  roleReadyCount: { ready: number; total: number; confirmedPlayerIds: string[] };
 
   // Actions
   createGame: () => void;
@@ -60,6 +60,7 @@ interface GameContextValue {
   clearError: () => void;
   leaveGame: () => void;
   confirmRoleReady: () => void;
+  forceStartNight: () => void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -98,7 +99,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [hasVoted, setHasVoted] = useState(false);
 
   // Role ready tracking
-  const [roleReadyCount, setRoleReadyCount] = useState({ ready: 0, total: 0 });
+  const [roleReadyCount, setRoleReadyCount] = useState({ ready: 0, total: 0, confirmedPlayerIds: [] as string[] });
 
   // Track socket ID
   useEffect(() => {
@@ -344,12 +345,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
       setGameResult(null);
       setHasVoted(false);
       setVoteCount({ voted: 0, total: data.players.length });
-      setRoleReadyCount({ ready: 0, total: data.players.length });
+      setRoleReadyCount({ ready: 0, total: data.players.length, confirmedPlayerIds: [] });
     });
 
     // Role ready update
     const unsubRoleReadyUpdate = on('role_ready_update', (data) => {
-      setRoleReadyCount({ ready: data.readyCount, total: data.totalPlayers });
+      setRoleReadyCount({ 
+        ready: data.readyCount, 
+        total: data.totalPlayers,
+        confirmedPlayerIds: data.confirmedPlayerIds || []
+      });
     });
 
     // Night turn
@@ -530,6 +535,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }
   }, [emit, roomCode]);
 
+  const forceStartNight = useCallback(() => {
+    if (roomCode) {
+      emit('force_start_night', { roomCode });
+    }
+  }, [emit, roomCode]);
+
   const value: GameContextValue = {
     // Auth
     isAuthenticated,
@@ -575,6 +586,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     clearError,
     leaveGame,
     confirmRoleReady,
+    forceStartNight,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

@@ -28,6 +28,7 @@ export function Game() {
     castVote,
     restartGame,
     leaveGame,
+    forceStartNight,
   } = useGame();
 
   const [selectedTargets, setSelectedTargets] = useState<(string | number)[]>([]);
@@ -105,14 +106,25 @@ export function Game() {
 
             {/* Player indicators */}
             <div className="flex flex-wrap justify-center gap-2">
-              {players.map((player, index) => (
-                <div
-                  key={player.id}
-                  className={`w-3 h-3 rounded-full transition-colors duration-300 ${index < roleReadyCount.ready ? 'bg-green-500' : 'bg-gray-600'
-                    }`}
-                  title={player.name}
-                />
-              ))}
+              {players.map((player) => {
+                const isReady = roleReadyCount.confirmedPlayerIds.includes(player.id);
+                const isDisconnected = player.disconnected || false;
+                
+                let colorClass = 'bg-gray-600'; // Default: not ready
+                if (isDisconnected) {
+                  colorClass = 'bg-red-500 animate-pulse'; // Disconnected
+                } else if (isReady) {
+                  colorClass = 'bg-green-500'; // Ready
+                }
+                
+                return (
+                  <div
+                    key={player.id}
+                    className={`w-3 h-3 rounded-full transition-colors duration-300 ${colorClass}`}
+                    title={`${player.name}${isDisconnected ? ' (Disconnected)' : isReady ? ' (Ready)' : ' (Waiting...)'}`}
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -148,6 +160,16 @@ export function Game() {
         >
           I'm Ready for Night
         </button>
+
+        {/* Host-only force start button */}
+        {isHost && roleReadyCount.ready < roleReadyCount.total && (
+          <button
+            onClick={forceStartNight}
+            className="btn-danger w-full max-w-sm mt-2 text-sm py-2"
+          >
+            Force Start Night (Host Only)
+          </button>
+        )}
 
         <p className="text-gray-500 text-xs text-center mt-3 max-w-sm">
           {roleReadyCount.ready} of {roleReadyCount.total} players ready

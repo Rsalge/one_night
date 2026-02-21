@@ -135,6 +135,13 @@ function generateRoomCode() {
  */
 async function advanceNightPhase(roomCode) {
     try {
+        // Clear role reveal timeouts if they exist
+        if (global.roleRevealTimeouts && global.roleRevealTimeouts[roomCode]) {
+            clearTimeout(global.roleRevealTimeouts[roomCode].warning);
+            clearTimeout(global.roleRevealTimeouts[roomCode].autoStart);
+            delete global.roleRevealTimeouts[roomCode];
+        }
+
         const game = await gameStore.getGame(roomCode);
         if (!game || game.state !== 'NIGHT') return;
 
@@ -395,6 +402,23 @@ io.on('connection', (socket) => {
                     centerCardsCount: game.centerRoles?.length || 0,
                     isHost: player.isHost
                 });
+                
+                // If in role reveal phase, send ready count update
+                if (game.state === 'NIGHT' && game.pendingRoleConfirms) {
+                    const readyCount = game.players.length - game.pendingRoleConfirms.length;
+                    const confirmedPlayerIds = game.players
+                        .map(p => p.id)
+                        .filter(id => !game.pendingRoleConfirms.includes(id));
+                    
+                    socket.emit('role_ready_update', {
+                        readyCount: readyCount,
+                        totalPlayers: game.players.length,
+                        confirmedPlayerIds: confirmedPlayerIds
+                    });
+                    
+                    const needsToConfirm = game.pendingRoleConfirms.includes(socket.id);
+                    console.log(`[RECONNECT] Player ${username} rejoined role reveal (${readyCount}/${game.players.length}, ${needsToConfirm ? 'needs to confirm' : 'already confirmed'})`);
+                }
             }
 
             io.to(game.roomCode).emit('update_players', game.players.filter(p => !p.disconnected));
@@ -437,9 +461,47 @@ io.on('connection', (socket) => {
                                     nightPhaseProcessing.delete(key);
                                 }
                             }
+                            // Clear role reveal timeouts if game is deleted
+                            if (global.roleRevealTimeouts && global.roleRevealTimeouts[code]) {
+                                clearTimeout(global.roleRevealTimeouts[code].warning);
+                                clearTimeout(global.roleRevealTimeouts[code].autoStart);
+                                delete global.roleRevealTimeouts[code];
+                            }
                             console.log(`Game ${code} deleted (empty)`);
                         } else if (result && result.game) {
                             io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
+                            
+                            // If player was in role reveal pending list, remove them
+                            if (result.game.state === 'NIGHT' && 
+                                result.game.pendingRoleConfirms && 
+                                result.game.pendingRoleConfirms.includes(socket.id)) {
+                                
+                                const pending = result.game.pendingRoleConfirms.filter(id => id !== socket.id);
+                                await gameStore.updateGameState(code, {
+                                    pendingRoleConfirms: pending
+                                });
+                                
+                                const remainingPlayers = result.game.players.length - 1;
+                                const readyCount = remainingPlayers - pending.length;
+                                const confirmedPlayerIds = result.game.players
+                                    .filter(p => p.id !== socket.id)
+                                    .map(p => p.id)
+                                    .filter(id => !pending.includes(id));
+                                
+                                console.log(`[DISCONNECT_TIMEOUT] Removed player from pending ready (${readyCount}/${remainingPlayers})`);
+                                
+                                io.to(code).emit('role_ready_update', {
+                                    readyCount: readyCount,
+                                    totalPlayers: remainingPlayers,
+                                    confirmedPlayerIds: confirmedPlayerIds
+                                });
+                                
+                                // If everyone else is ready, start night phase
+                                if (pending.length === 0) {
+                                    console.log(`[DISCONNECT_TIMEOUT] All remaining players ready, starting night phase`);
+                                    advanceNightPhase(code);
+                                }
+                            }
                         }
                     }
                 } catch (e) { console.error(e); }
@@ -462,11 +524,6 @@ io.on('connection', (socket) => {
 
             const startedGame = await gameStore.startGame(roomCode, dbGame.selectedRoles);
 
-            // Initialize pending role confirmations with all player IDs
-            await gameStore.updateGameState(roomCode, {
-                pendingRoleConfirms: startedGame.players.map(p => p.id)
-            });
-
             startedGame.players.forEach((p) => {
                 io.to(p.id).emit('game_started', {
                     role: p.role,
@@ -479,12 +536,49 @@ io.on('connection', (socket) => {
             // Send initial ready count (0 ready)
             io.to(roomCode).emit('role_ready_update', {
                 readyCount: 0,
-                totalPlayers: startedGame.players.length
+                totalPlayers: startedGame.players.length,
+                confirmedPlayerIds: []
             });
 
-            console.log(`Game ${roomCode} started, waiting for ${startedGame.players.length} players to confirm ready`);
+            // Set 5-minute safety timeout with 4-minute warning
+            const warningTimeoutId = setTimeout(() => {
+                io.to(roomCode).emit('role_ready_warning', {
+                    message: 'Game will auto-start in 1 minute if not all players are ready',
+                    secondsRemaining: 60
+                });
+                console.log(`[TIMEOUT_WARNING] ${roomCode} will auto-start in 1 minute`);
+            }, 4 * 60 * 1000); // 4 minutes
 
-            // NO AUTO-START TIMEOUT - wait indefinitely for all players to confirm
+            const autoStartTimeoutId = setTimeout(async () => {
+                try {
+                    const currentGame = await gameStore.getGame(roomCode);
+                    if (!currentGame) return;
+                    
+                    if (currentGame.state === 'NIGHT' && 
+                        currentGame.pendingRoleConfirms && 
+                        currentGame.pendingRoleConfirms.length > 0) {
+                        
+                        console.log(`[TIMEOUT] Role reveal timeout in ${roomCode}, auto-starting night (${currentGame.pendingRoleConfirms.length} players didn't confirm)`);
+                        
+                        await gameStore.updateGameState(roomCode, {
+                            pendingRoleConfirms: []
+                        });
+                        
+                        advanceNightPhase(roomCode);
+                    }
+                } catch (e) {
+                    console.error('[TIMEOUT] Error:', e);
+                }
+            }, 5 * 60 * 1000); // 5 minutes
+
+            // Store timeout IDs for cleanup
+            if (!global.roleRevealTimeouts) global.roleRevealTimeouts = {};
+            global.roleRevealTimeouts[roomCode] = {
+                warning: warningTimeoutId,
+                autoStart: autoStartTimeoutId
+            };
+
+            console.log(`Game ${roomCode} started, waiting for ${startedGame.players.length} players to confirm ready (5min timeout)`);
         } catch (err) {
             console.error("Error starting game", err);
             socket.emit('error', { message: err.message || "Failed to start" });
@@ -503,7 +597,21 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            let pending = game.pendingRoleConfirms || [];
+            // Defensive check: ensure pendingRoleConfirms exists
+            if (!game.pendingRoleConfirms || !Array.isArray(game.pendingRoleConfirms)) {
+                console.error('[ROLE_READY] pendingRoleConfirms not initialized:', game.pendingRoleConfirms);
+                await gameStore.updateGameState(roomCode, {
+                    pendingRoleConfirms: game.players.map(p => p.id)
+                });
+                io.to(roomCode).emit('role_ready_update', {
+                    readyCount: 0,
+                    totalPlayers: game.players.length,
+                    confirmedPlayerIds: []
+                });
+                return;
+            }
+
+            let pending = game.pendingRoleConfirms;
             
             // Check if this player already confirmed
             if (!pending.includes(socket.id)) {
@@ -514,18 +622,24 @@ io.on('connection', (socket) => {
             // Remove this player from pending list
             pending = pending.filter(id => id !== socket.id);
 
-            await gameStore.updateGameState(roomCode, {
+            // Update database and get fresh data
+            const updatedGame = await gameStore.updateGameState(roomCode, {
                 pendingRoleConfirms: pending
             });
 
-            const readyCount = game.players.length - pending.length;
+            // Calculate using fresh data
+            const readyCount = updatedGame.players.length - pending.length;
+            const confirmedPlayerIds = updatedGame.players
+                .map(p => p.id)
+                .filter(id => !pending.includes(id));
             
-            console.log(`[ROLE_READY] Player ${socket.id} confirmed ready in ${roomCode} (${readyCount}/${game.players.length})`);
+            console.log(`[ROLE_READY] Player ${socket.id} confirmed ready in ${roomCode} (${readyCount}/${updatedGame.players.length})`);
 
             // Broadcast updated ready count to all players
             io.to(roomCode).emit('role_ready_update', {
                 readyCount: readyCount,
-                totalPlayers: game.players.length
+                totalPlayers: updatedGame.players.length,
+                confirmedPlayerIds: confirmedPlayerIds
             });
 
             // If everyone is ready, start night phase
@@ -535,6 +649,43 @@ io.on('connection', (socket) => {
             }
         } catch (e) {
             console.error('[ROLE_READY] Error:', e);
+        }
+    });
+
+    socket.on('force_start_night', async ({ roomCode }) => {
+        try {
+            const game = await gameStore.getGame(roomCode);
+            if (!game) {
+                console.log('[FORCE_START] Game not found:', roomCode);
+                return;
+            }
+            
+            // Verify requester is host
+            const player = game.players.find(p => p.id === socket.id);
+            if (!player || !player.isHost) {
+                console.log('[FORCE_START] Unauthorized: not host');
+                socket.emit('error', { message: 'Only host can force start' });
+                return;
+            }
+            
+            // Verify game is in role reveal phase with pending players
+            if (game.state !== 'NIGHT' || !game.pendingRoleConfirms || game.pendingRoleConfirms.length === 0) {
+                console.log('[FORCE_START] Invalid state:', game.state);
+                return;
+            }
+            
+            console.log(`[FORCE_START] Host forced night start in ${roomCode} (skipped ${game.pendingRoleConfirms.length} players)`);
+            
+            // Clear pending confirmations
+            await gameStore.updateGameState(roomCode, {
+                pendingRoleConfirms: []
+            });
+            
+            // Start night phase
+            advanceNightPhase(roomCode);
+        } catch (e) {
+            console.error('[FORCE_START] Error:', e);
+            socket.emit('error', { message: 'Failed to force start' });
         }
     });
 
@@ -782,6 +933,13 @@ io.on('connection', (socket) => {
             const player = game.players.find(p => p.id === socket.id);
             if (!player || !player.isHost) return;
 
+            // Clear role reveal timeouts if they exist
+            if (global.roleRevealTimeouts && global.roleRevealTimeouts[roomCode]) {
+                clearTimeout(global.roleRevealTimeouts[roomCode].warning);
+                clearTimeout(global.roleRevealTimeouts[roomCode].autoStart);
+                delete global.roleRevealTimeouts[roomCode];
+            }
+
             const restartedGame = await gameStore.updateGameState(roomCode, {
                 state: 'LOBBY',
                 votes: {},
@@ -791,6 +949,7 @@ io.on('connection', (socket) => {
                 shielded: [],
                 revealed: [],
                 pendingAcks: [],
+                pendingRoleConfirms: null,
                 startedAt: null,
                 completedAt: null
             });
