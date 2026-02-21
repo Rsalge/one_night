@@ -28,6 +28,10 @@ const statsAPI = require('./src/server/statsAPI');
 // Track authenticated users by socket
 const socketToUser = new Map(); // socketId -> { userId, username }
 
+// Track night phase processing to prevent duplicate emissions (idempotency)
+// Maps roomCode -> nightIndex currently being processed
+const nightPhaseProcessing = new Map();
+
 // Middleware for JSON parsing
 app.use(express.json({ limit: '10mb' }));
 
@@ -119,6 +123,156 @@ if (!dev) {
 }
 function generateRoomCode() {
     return Math.random().toString(36).substring(2, 6).toUpperCase();
+}
+
+/**
+ * Advances the night phase for a game room.
+ * Determines the next role to act, emits events, and handles auto-resolution.
+ * 
+ * IMPORTANT: This function is at module scope (not per-socket) to prevent
+ * duplicate event emissions when multiple sockets trigger it simultaneously.
+ * Idempotency is enforced via nightPhaseProcessing map.
+ */
+async function advanceNightPhase(roomCode) {
+    try {
+        const game = await gameStore.getGame(roomCode);
+        if (!game || game.state !== 'NIGHT') return;
+
+        // Idempotency check: prevent duplicate processing of same nightIndex
+        const processingKey = `${roomCode}:${game.nightIndex}`;
+        if (nightPhaseProcessing.has(processingKey)) {
+            return; // Already processing this night index for this room
+        }
+        nightPhaseProcessing.set(processingKey, Date.now());
+
+        // Clean up old processing entries for this room (from previous night indices)
+        for (const key of nightPhaseProcessing.keys()) {
+            if (key.startsWith(`${roomCode}:`) && key !== processingKey) {
+                nightPhaseProcessing.delete(key);
+            }
+        }
+
+        const turn = getNextNightTurn(game);
+
+        if (turn.done) {
+            // Clear processing state for this room when transitioning to DAY
+            nightPhaseProcessing.delete(processingKey);
+            
+            await gameStore.updateGameState(roomCode, {
+                state: 'DAY',
+                votes: {}
+            });
+            const updatedGame = await gameStore.getGame(roomCode);
+
+            io.to(roomCode).emit('phase_change', {
+                phase: 'DAY',
+                players: updatedGame.players.map(p => ({ id: p.id, name: p.name }))
+            });
+            console.log(`Game ${roomCode} switching to DAY`);
+            return;
+        }
+
+        const { role: currentRole, players: playersWithRole, isInteractive } = turn;
+
+        const flavorText = {
+            'Sentinel': 'Sentinel, wake up. You may place a shield on another player\'s card.',
+            'Werewolf': 'Werewolves, wake up and look for other werewolves.',
+            'Alpha Wolf': 'Alpha Wolf, wake up. Choose a non-wolf player to turn into a Werewolf.',
+            'Mystic Wolf': 'Mystic Wolf, wake up. You may look at another player\'s card.',
+            'Minion': 'Minion, wake up. Werewolves, stick out your thumb.',
+            'Mason': 'Masons, wake up and look for other masons.',
+            'Seer': 'Seer, wake up. You may look at another player\'s card or two center cards.',
+            'Apprentice Seer': 'Apprentice Seer, wake up. You may look at one center card.',
+            'Paranormal Investigator': 'P.I., wake up. You may look at up to two players\' cards.',
+            'Robber': 'Robber, wake up. You may exchange your card with another player\'s card.',
+            'Witch': 'Witch, wake up. Look at a center card. You may swap it with any player\'s card.',
+            'Troublemaker': 'Troublemaker, wake up. You may exchange cards between two other players.',
+            'Drunk': 'Drunk, wake up and exchange your card with a card from the center.',
+            'Insomniac': 'Insomniac, wake up and look at your card.',
+            'Revealer': 'Revealer, wake up. You may flip another player\'s card face up.'
+        };
+
+        console.log(`Night turn: ${currentRole} (interactive: ${isInteractive})`);
+
+        if (isInteractive) {
+            const activeIds = playersWithRole.map(p => p.id);
+            let flavor = flavorText[currentRole] || `${currentRole}, wake up.`;
+            if (currentRole === 'Werewolf' && playersWithRole.length === 1) {
+                flavor = 'You are the lone wolf — you may look at one center card.';
+            }
+
+            activeIds.forEach(pid => {
+                io.to(pid).emit('night_turn', {
+                    activeRole: currentRole,
+                    activePlayerIds: activeIds,
+                    flavor,
+                    isInteractive: true
+                });
+            });
+
+            game.players.forEach(p => {
+                if (!activeIds.includes(p.id)) {
+                    io.to(p.id).emit('night_turn', {
+                        activeRole: null,
+                        activePlayerIds: [],
+                        flavor: 'Close your eyes...',
+                        isInteractive: false
+                    });
+                }
+            });
+            return;
+        } else {
+            const results = autoResolveRole(game, currentRole);
+            const activeIds = playersWithRole.map(p => p.id);
+
+            activeIds.forEach(pid => {
+                io.to(pid).emit('night_turn', {
+                    activeRole: currentRole,
+                    activePlayerIds: activeIds,
+                    flavor: flavorText[currentRole] || `${currentRole}, wake up.`,
+                    isInteractive: false
+                });
+            });
+
+            game.players.forEach(p => {
+                if (!activeIds.includes(p.id)) {
+                    io.to(p.id).emit('night_turn', {
+                        activeRole: null,
+                        activePlayerIds: [],
+                        flavor: 'Close your eyes...',
+                        isInteractive: false
+                    });
+                }
+            });
+
+            for (const [playerId, result] of Object.entries(results)) {
+                io.to(playerId).emit('action_result', result);
+            }
+
+            const ackIds = Object.keys(results);
+            if (ackIds.length > 0) {
+                await gameStore.updateGameState(roomCode, {
+                    pendingAcks: ackIds,
+                    nightLog: game.nightLog
+                });
+            } else {
+                await gameStore.updateGameState(roomCode, {
+                    nightIndex: game.nightIndex + 1,
+                    nightLog: game.nightLog
+                });
+                setTimeout(() => advanceNightPhase(roomCode), 1000);
+            }
+            return;
+        }
+    } catch (e) {
+        console.error("Error advancing night:", e);
+        // Clean up processing state on error to allow retry
+        for (const key of nightPhaseProcessing.keys()) {
+            if (key.startsWith(`${roomCode}:`)) {
+                nightPhaseProcessing.delete(key);
+            }
+        }
+    }
 }
 
 // Auth namespace for unauthenticated connections (login/register)
@@ -277,6 +431,12 @@ io.on('connection', (socket) => {
                         delete global.disconnectTimers[timerId];
 
                         if (result && result.deleted) {
+                            // Clean up night phase processing state for deleted game
+                            for (const key of nightPhaseProcessing.keys()) {
+                                if (key.startsWith(`${code}:`)) {
+                                    nightPhaseProcessing.delete(key);
+                                }
+                            }
                             console.log(`Game ${code} deleted (empty)`);
                         } else if (result && result.game) {
                             io.to(code).emit('update_players', result.game.players.filter(p => !p.disconnected));
@@ -289,123 +449,6 @@ io.on('connection', (socket) => {
             console.error("Disconnect handler error:", err);
         }
     });
-
-    async function advanceNightPhase(roomCode) {
-        try {
-            const game = await gameStore.getGame(roomCode);
-            if (!game || game.state !== 'NIGHT') return;
-
-            const turn = getNextNightTurn(game);
-
-            if (turn.done) {
-                await gameStore.updateGameState(roomCode, {
-                    state: 'DAY',
-                    votes: {}
-                });
-                const updatedGame = await gameStore.getGame(roomCode);
-
-                io.to(roomCode).emit('phase_change', {
-                    phase: 'DAY',
-                    players: updatedGame.players.map(p => ({ id: p.id, name: p.name }))
-                });
-                console.log(`Game ${roomCode} switching to DAY`);
-                return;
-            }
-
-            const { role: currentRole, players: playersWithRole, isInteractive } = turn;
-
-            const flavorText = {
-                'Sentinel': 'Sentinel, wake up. You may place a shield on another player\'s card.',
-                'Werewolf': 'Werewolves, wake up and look for other werewolves.',
-                'Alpha Wolf': 'Alpha Wolf, wake up. Choose a non-wolf player to turn into a Werewolf.',
-                'Mystic Wolf': 'Mystic Wolf, wake up. You may look at another player\'s card.',
-                'Minion': 'Minion, wake up. Werewolves, stick out your thumb.',
-                'Mason': 'Masons, wake up and look for other masons.',
-                'Seer': 'Seer, wake up. You may look at another player\'s card or two center cards.',
-                'Apprentice Seer': 'Apprentice Seer, wake up. You may look at one center card.',
-                'Paranormal Investigator': 'P.I., wake up. You may look at up to two players\' cards.',
-                'Robber': 'Robber, wake up. You may exchange your card with another player\'s card.',
-                'Witch': 'Witch, wake up. Look at a center card. You may swap it with any player\'s card.',
-                'Troublemaker': 'Troublemaker, wake up. You may exchange cards between two other players.',
-                'Drunk': 'Drunk, wake up and exchange your card with a card from the center.',
-                'Insomniac': 'Insomniac, wake up and look at your card.',
-                'Revealer': 'Revealer, wake up. You may flip another player\'s card face up.'
-            };
-
-            console.log(`Night turn: ${currentRole} (interactive: ${isInteractive})`);
-
-            if (isInteractive) {
-                const activeIds = playersWithRole.map(p => p.id);
-                let flavor = flavorText[currentRole] || `${currentRole}, wake up.`;
-                if (currentRole === 'Werewolf' && playersWithRole.length === 1) {
-                    flavor = 'You are the lone wolf — you may look at one center card.';
-                }
-
-                activeIds.forEach(pid => {
-                    io.to(pid).emit('night_turn', {
-                        activeRole: currentRole,
-                        activePlayerIds: activeIds,
-                        flavor,
-                        isInteractive: true
-                    });
-                });
-
-                game.players.forEach(p => {
-                    if (!activeIds.includes(p.id)) {
-                        io.to(p.id).emit('night_turn', {
-                            activeRole: null,
-                            activePlayerIds: [],
-                            flavor: 'Close your eyes...',
-                            isInteractive: false
-                        });
-                    }
-                });
-                return;
-            } else {
-                const results = autoResolveRole(game, currentRole);
-                const activeIds = playersWithRole.map(p => p.id);
-
-                activeIds.forEach(pid => {
-                    io.to(pid).emit('night_turn', {
-                        activeRole: currentRole,
-                        activePlayerIds: activeIds,
-                        flavor: flavorText[currentRole] || `${currentRole}, wake up.`,
-                        isInteractive: false
-                    });
-                });
-
-                game.players.forEach(p => {
-                    if (!activeIds.includes(p.id)) {
-                        io.to(p.id).emit('night_turn', {
-                            activeRole: null,
-                            activePlayerIds: [],
-                            flavor: 'Close your eyes...',
-                            isInteractive: false
-                        });
-                    }
-                });
-
-                for (const [playerId, result] of Object.entries(results)) {
-                    io.to(playerId).emit('action_result', result);
-                }
-
-                const ackIds = Object.keys(results);
-                if (ackIds.length > 0) {
-                    await gameStore.updateGameState(roomCode, {
-                        pendingAcks: ackIds,
-                        nightLog: game.nightLog
-                    });
-                } else {
-                    await gameStore.updateGameState(roomCode, {
-                        nightIndex: game.nightIndex + 1,
-                        nightLog: game.nightLog
-                    });
-                    setTimeout(() => advanceNightPhase(roomCode), 1000);
-                }
-                return;
-            }
-        } catch (e) { console.error("Error advancing night:", e); }
-    }
 
     socket.on('start_game', async ({ roomCode }) => {
         try {
