@@ -227,6 +227,36 @@ describe('processNightAction — Base Roles', () => {
         expect(game.players[0].role).toBe('Werewolf');
         expect(game.centerRoles[0]).toBe('Drunk');
     });
+
+    test('Lone Werewolf peeks at center card', () => {
+        const game = makeGame([makePlayer('w1', 'A', 'Werewolf')], ['Tanner', 'Seer', 'Villager']);
+        game.nightIndex = 1; // 'Werewolf' is at index 1 in NIGHT_ORDER
+        const result = processNightAction(game, game.players[0], 'act', [0]);
+        expect(result.type).toBe('view_center');
+        expect(result.cards).toEqual(['Tanner']);
+        expect(game.nightLog).toHaveLength(1);
+        expect(game.nightLog[0].description).toContain('lone Werewolf');
+    });
+
+    test('Lone Alpha Wolf peeks at center card during Werewolf phase', () => {
+        const game = makeGame([makePlayer('aw', 'A', 'Alpha Wolf')], ['Tanner', 'Seer', 'Villager']);
+        game.nightIndex = 1; // 'Werewolf' is at index 1 in NIGHT_ORDER
+        const result = processNightAction(game, game.players[0], 'act', [0]);
+        expect(result.type).toBe('view_center');
+        expect(result.cards).toEqual(['Tanner']);
+        expect(game.nightLog).toHaveLength(1);
+        expect(game.nightLog[0].description).toContain('lone');
+    });
+
+    test('Lone Mystic Wolf peeks at center card during Werewolf phase', () => {
+        const game = makeGame([makePlayer('mw', 'A', 'Mystic Wolf')], ['Drunk', 'Mason', 'Hunter']);
+        game.nightIndex = 1; // 'Werewolf' is at index 1 in NIGHT_ORDER
+        const result = processNightAction(game, game.players[0], 'act', [1]);
+        expect(result.type).toBe('view_center');
+        expect(result.cards).toEqual(['Mason']);
+        expect(game.nightLog).toHaveLength(1);
+        expect(game.nightLog[0].description).toContain('lone');
+    });
 });
 
 // ─── processNightAction (Daybreak roles) ─────────────────

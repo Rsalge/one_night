@@ -113,14 +113,17 @@ function processNightAction(game, player, action, targetIds) {
             game.nightLog.push({ role: 'Sentinel', description: `${player.name} (Sentinel) shields ${target?.name || 'a player'}'s card` });
         }
     }
-    // ── Lone Werewolf (center peek) ──
-    else if (player.originalRole === 'Werewolf') {
+    // ── Lone Wolf (center peek) ──
+    // During the Werewolf group phase (nightIndex points to 'Werewolf' in NIGHT_ORDER),
+    // any waking wolf (Werewolf, Alpha Wolf, Mystic Wolf) who is alone can peek at a center card.
+    // We check if we're in the Werewolf phase AND the player is a waking wolf AND target is a center card.
+    else if (NIGHT_ORDER[game.nightIndex] === 'Werewolf' && WOLF_WAKE_ROLES.includes(player.originalRole)) {
         if (targetIds.length === 1 && typeof targetIds[0] === 'number') {
             const centerIdx = targetIds[0];
             if (centerIdx >= 0 && centerIdx < game.centerRoles.length) {
                 const card = game.centerRoles[centerIdx];
                 result = { type: 'view_center', cards: [card] };
-                game.nightLog.push({ role: 'Werewolf', description: `${player.name} (lone Werewolf) peeks at center card ${centerIdx + 1} and sees ${card}` });
+                game.nightLog.push({ role: 'Werewolf', description: `${player.name} (lone ${player.originalRole}) peeks at center card ${centerIdx + 1} and sees ${card}` });
             }
         }
     }

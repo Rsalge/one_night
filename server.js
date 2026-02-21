@@ -480,20 +480,37 @@ io.on('connection', (socket) => {
 
     socket.on('night_action', async ({ roomCode, action, targetIds }) => {
         try {
+            console.log(`[night_action] roomCode=${roomCode}, action=${action}, targetIds=${JSON.stringify(targetIds)}`);
+            
             const game = await gameStore.getGame(roomCode);
-            if (!game || game.state !== 'NIGHT') return;
+            if (!game || game.state !== 'NIGHT') {
+                console.log(`[night_action] Invalid game state: game=${!!game}, state=${game?.state}`);
+                return;
+            }
 
             const player = game.players.find(p => p.id === socket.id);
-            if (!player) return;
+            if (!player) {
+                console.log(`[night_action] Player not found for socket ${socket.id}`);
+                return;
+            }
 
             const currentRole = NIGHT_ORDER[game.nightIndex];
+            console.log(`[night_action] player.originalRole=${player.originalRole}, currentRole=${currentRole}, nightIndex=${game.nightIndex}`);
+            
             if (currentRole === 'Werewolf') {
-                if (!WOLF_WAKE_ROLES.includes(player.originalRole)) return;
+                if (!WOLF_WAKE_ROLES.includes(player.originalRole)) {
+                    console.log(`[night_action] Player role ${player.originalRole} not in WOLF_WAKE_ROLES`);
+                    return;
+                }
             } else {
-                if (player.originalRole !== currentRole) return;
+                if (player.originalRole !== currentRole) {
+                    console.log(`[night_action] Player role ${player.originalRole} !== currentRole ${currentRole}`);
+                    return;
+                }
             }
 
             let result = processNightAction(game, player, action, targetIds);
+            console.log(`[night_action] processNightAction result:`, result);
 
             if (player.role !== player.originalRole) {
                 await gameStore.updatePlayerRole(player.id, { role: player.role });
