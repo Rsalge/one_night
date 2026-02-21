@@ -66,16 +66,14 @@ export function Lobby() {
     
     const maxCount = roleDefinition.maxCount;
 
-    if (currentCount < maxCount) {
-      selectRoles([...selectedRoles, roleId]);
-    } else {
-      // Remove one instance of this role
-      const newRoles = [...selectedRoles];
-      const index = newRoles.indexOf(roleId);
-      if (index !== -1) {
-        newRoles.splice(index, 1);
-      }
+    // Cycle through: 0 → 1 → 2 → ... → maxCount → 0
+    if (currentCount >= maxCount) {
+      // At max, remove ALL instances (go to 0)
+      const newRoles = selectedRoles.filter(r => r !== roleId);
       selectRoles(newRoles);
+    } else {
+      // Not at max, add one more
+      selectRoles([...selectedRoles, roleId]);
     }
   };
 
