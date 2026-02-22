@@ -172,9 +172,13 @@ function processNightAction(game, player, action, targetIds) {
                 game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) tried to view ${target.name} but they were shielded` });
             }
         } else if (targetIds.length === 2 && targetIds.every(id => typeof id === 'number')) {
-            const cards = targetIds.map(idx => game.centerRoles[idx]);
-            result = { type: 'view_center', cards };
-            game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at 2 center cards and sees ${cards.join(' & ')}` });
+            // Validate center card indices are in bounds
+            const validIndices = targetIds.every(idx => idx >= 0 && idx < game.centerRoles.length);
+            if (validIndices) {
+                const cards = targetIds.map(idx => game.centerRoles[idx]);
+                result = { type: 'view_center', cards };
+                game.nightLog.push({ role: 'Seer', description: `${player.name} (Seer) looks at 2 center cards and sees ${cards.join(' & ')}` });
+            }
         }
     }
     // ── Apprentice Seer ──
@@ -190,13 +194,18 @@ function processNightAction(game, player, action, targetIds) {
     }
     // ── Paranormal Investigator ──
     else if (player.originalRole === 'Paranormal Investigator') {
+        // Must have 1-2 player targets (no center cards, no empty, no more than 2)
+        if (targetIds.length === 0 || targetIds.length > 2) return null;
+        if (targetIds.some(id => typeof id !== 'string')) return null;
+        // All targets must be valid players
+        const validTargets = targetIds.every(id => game.players.some(p => p.id === id));
+        if (!validTargets) return null;
+        
         const viewed = [];
         let becameRole = null;
-        for (let i = 0; i < Math.min(targetIds.length, 2); i++) {
+        for (let i = 0; i < targetIds.length; i++) {
             const tid = targetIds[i];
-            if (typeof tid !== 'string') continue;
             const target = game.players.find(p => p.id === tid);
-            if (!target) continue;
             if (isShielded(game, tid)) {
                 viewed.push({ name: target.name, role: '🛡️ Shielded' });
                 continue;
@@ -217,14 +226,19 @@ function processNightAction(game, player, action, targetIds) {
     }
     // ── Robber ──
     else if (player.originalRole === 'Robber') {
-        const target = game.players.find(p => p.id === targetIds[0]);
-        if (target && !isShielded(game, targetIds[0])) {
+        const targetId = targetIds[0];
+        // Cannot target self
+        if (typeof targetId !== 'string' || targetId === player.id) {
+            return null;
+        }
+        const target = game.players.find(p => p.id === targetId);
+        if (target && !isShielded(game, targetId)) {
             const myRole = player.role;
             player.role = target.role;
             target.role = myRole;
             result = { type: 'swap_view', newRole: player.role, name: target.name };
             game.nightLog.push({ role: 'Robber', description: `${player.name} (Robber) swaps with ${target.name} and is now ${player.role}` });
-        } else if (target && isShielded(game, targetIds[0])) {
+        } else if (target && isShielded(game, targetId)) {
             result = { type: 'info', message: `${target.name} is shielded — no swap.` };
             game.nightLog.push({ role: 'Robber', description: `${player.name} (Robber) tried to swap with ${target.name} but they were shielded` });
         }
@@ -232,29 +246,38 @@ function processNightAction(game, player, action, targetIds) {
     // ── Witch ──
     else if (player.originalRole === 'Witch') {
         // targetIds: [centerIdx] = view only, [centerIdx, playerId] = view + swap
+        // Must have 1 or 2 targets: first must be center card, second (if present) must be player
+        if (targetIds.length === 0 || targetIds.length > 2) return null;
         const centerIdx = targetIds[0];
-        if (typeof centerIdx === 'number' && centerIdx >= 0 && centerIdx < game.centerRoles.length) {
-            const viewedCard = game.centerRoles[centerIdx];
-            if (targetIds.length >= 2 && typeof targetIds[1] === 'string') {
-                const target = game.players.find(p => p.id === targetIds[1]);
-                if (target && !isShielded(game, targetIds[1])) {
-                    const oldRole = target.role;
-                    target.role = game.centerRoles[centerIdx];
-                    game.centerRoles[centerIdx] = oldRole;
-                    result = { type: 'witch_result', viewedCard, swapped: true, targetName: target.name };
-                    game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) sees ${viewedCard} in center and swaps it with ${target.name}'s card` });
-                } else if (target && isShielded(game, targetIds[1])) {
-                    result = { type: 'witch_result', viewedCard, swapped: false, shielded: true };
-                    game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) sees ${viewedCard} in center but ${target.name} was shielded` });
-                }
-            } else {
-                result = { type: 'witch_result', viewedCard, swapped: false };
-                game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) peeks at center card ${centerIdx + 1} and sees ${viewedCard}` });
+        if (typeof centerIdx !== 'number' || centerIdx < 0 || centerIdx >= game.centerRoles.length) return null;
+        // If 2 targets, second must be a player ID (string)
+        if (targetIds.length === 2 && typeof targetIds[1] !== 'string') return null;
+        
+        const viewedCard = game.centerRoles[centerIdx];
+        if (targetIds.length === 2) {
+            const target = game.players.find(p => p.id === targetIds[1]);
+            if (target && !isShielded(game, targetIds[1])) {
+                const oldRole = target.role;
+                target.role = game.centerRoles[centerIdx];
+                game.centerRoles[centerIdx] = oldRole;
+                result = { type: 'witch_result', viewedCard, swapped: true, targetName: target.name };
+                game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) sees ${viewedCard} in center and swaps it with ${target.name}'s card` });
+            } else if (target && isShielded(game, targetIds[1])) {
+                result = { type: 'witch_result', viewedCard, swapped: false, shielded: true };
+                game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) sees ${viewedCard} in center but ${target.name} was shielded` });
             }
+        } else {
+            result = { type: 'witch_result', viewedCard, swapped: false };
+            game.nightLog.push({ role: 'Witch', description: `${player.name} (Witch) peeks at center card ${centerIdx + 1} and sees ${viewedCard}` });
         }
     }
     // ── Troublemaker ──
     else if (player.originalRole === 'Troublemaker') {
+        // Must have exactly 2 targets, both must be players (not self)
+        if (targetIds.length !== 2) return null;
+        if (targetIds.some(id => typeof id !== 'string')) return null;
+        if (targetIds.includes(player.id)) return null;
+        
         const p1 = game.players.find(p => p.id === targetIds[0]);
         const p2 = game.players.find(p => p.id === targetIds[1]);
         if (p1 && p2) {
@@ -275,6 +298,8 @@ function processNightAction(game, player, action, targetIds) {
     }
     // ── Drunk ──
     else if (player.originalRole === 'Drunk') {
+        // Must have exactly 1 center card target
+        if (targetIds.length !== 1) return null;
         const centerIdx = targetIds[0];
         if (typeof centerIdx === 'number' && centerIdx >= 0 && centerIdx < game.centerRoles.length) {
             const myRole = player.role;

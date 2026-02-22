@@ -302,7 +302,10 @@ describe('processNightAction — Daybreak Roles', () => {
                 makePlayer('w1', 'Wolf', 'Werewolf'),
             ]);
             const result = processNightAction(game, game.players[0], 'act', ['w1']);
-            expect(result).toBeNull();
+            // Returns info message rather than null (better UX)
+            expect(result).not.toBeNull();
+            expect(result.type).toBe('info');
+            expect(result.message).toContain('already a Wolf');
             expect(game.players[1].role).toBe('Werewolf');
         });
 
