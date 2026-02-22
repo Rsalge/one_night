@@ -350,8 +350,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     // Role ready update
     const unsubRoleReadyUpdate = on('role_ready_update', (data) => {
-      setRoleReadyCount({ 
-        ready: data.readyCount, 
+      setRoleReadyCount({
+        ready: data.readyCount,
         total: data.totalPlayers,
         confirmedPlayerIds: data.confirmedPlayerIds || []
       });
@@ -374,7 +374,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
     // Action result
     const unsubActionResult = on('action_result', (result) => {
       setActionResult(result || { type: 'info', message: 'Action completed with no effect.' });
-      setNightAction(null);
 
       // Update myRole if it changed (e.g., Robber, PI)
       if (result && result.newRole) {
@@ -494,6 +493,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (roomCode) {
       emit('acknowledge_night', { roomCode });
       setActionResult(null);
+      setNightAction(null);
     }
   }, [emit, roomCode]);
 
