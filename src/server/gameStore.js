@@ -127,6 +127,8 @@ async function rejoinGameByUserId(userId, socketId) {
             }
         });
 
+        const oldSocketId = player.id;
+
         // Update player's socket ID and mark as connected
         const updatedPlayer = await tx.player.update({
             where: { id: player.id },
@@ -135,6 +137,23 @@ async function rejoinGameByUserId(userId, socketId) {
                 disconnected: false
             }
         });
+
+        // If game has pendingRoleConfirms, update old socket ID to new socket ID
+        let gameUpdateData = {};
+        if (player.game.pendingRoleConfirms && Array.isArray(player.game.pendingRoleConfirms)) {
+            const updatedPending = player.game.pendingRoleConfirms.map(id => 
+                id === oldSocketId ? socketId : id
+            );
+            gameUpdateData.pendingRoleConfirms = updatedPending;
+        }
+
+        // Update game if needed
+        if (Object.keys(gameUpdateData).length > 0) {
+            await tx.game.update({
+                where: { roomCode: player.game.roomCode },
+                data: gameUpdateData
+            });
+        }
 
         const game = await tx.game.findUnique({
             where: { roomCode: player.game.roomCode },
